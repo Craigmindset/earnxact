@@ -43,7 +43,7 @@ export default function HeroSection() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-white">
-                        TikTok task
+                        TikTok tasks
                       </div>
                       <div className="text-xs text-white/50">Sign up & explore</div>
                     </div>
