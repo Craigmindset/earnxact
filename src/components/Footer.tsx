@@ -1,12 +1,6 @@
-import Link from "next/link";
-import { FaDiscord, FaTelegram, FaXTwitter, FaYoutube } from "react-icons/fa6";
+import { FaTelegram, FaXTwitter, FaYoutube } from "react-icons/fa6";
 
 export default function Footer() {
-  const links = {
-    login: "/login",
-    register: "/signup"
-  } as const;
-
   return (
     <footer className="border-t border-white/10 bg-[var(--brand-black)]">
       <div className="mx-auto max-w-6xl px-4 py-12 text-sm text-white/70">
@@ -22,12 +16,12 @@ export default function Footer() {
             </p>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-3 sm:gap-8">
             <div>
               <div className="text-xs font-semibold tracking-widest text-white/70">
                 EARN
               </div>
-              <div className="mt-3 space-y-2 text-sm text-white/60">
+              <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
                 <span className="block">Surveys</span>
                 <span className="block">Offers</span>
                 <span className="block">Tasks</span>
@@ -39,7 +33,7 @@ export default function Footer() {
               <div className="text-xs font-semibold tracking-widest text-white/70">
                 COMPANY
               </div>
-              <div className="mt-3 space-y-2 text-sm text-white/60">
+              <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
                 <span className="block">About</span>
                 <span className="block">Search</span>
                 <span className="block">Blog</span>
@@ -51,7 +45,7 @@ export default function Footer() {
               <div className="text-xs font-semibold tracking-widest text-white/70">
                 LEGAL
               </div>
-              <div className="mt-3 space-y-2 text-sm text-white/60">
+              <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
                 <span className="block">Terms of Service</span>
                 <span className="block">Privacy Policy</span>
                 <span className="block">Cookie Policy</span>
@@ -65,33 +59,24 @@ export default function Footer() {
             <div className="text-xs text-white/50">
               © 2026 EarnXact. All rights reserved.
             </div>
-            <div className="flex items-center gap-3 text-white/60">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                <FaDiscord className="text-base" />
-                <span className="text-xs">Discord</span>
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+            <div className="flex flex-wrap items-center gap-2 text-white/60">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
                 <FaTelegram className="text-base" />
                 <span className="text-xs">Telegram</span>
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
                 <FaXTwitter className="text-base" />
                 <span className="text-xs">X</span>
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
                 <FaYoutube className="text-base" />
                 <span className="text-xs">YouTube</span>
               </span>
             </div>
           </div>
-          <div className="mt-5 flex flex-wrap items-center gap-3 text-xs text-white/40">
-            <Link href={links.login} className="hover:text-white/70">
-              Login
-            </Link>
-            <Link href={links.register} className="hover:text-white/70">
-              Register
-            </Link>
-          </div>
+          <p className="mt-5 text-xs leading-relaxed text-white/40">
+            We strictly prohibit illegal activities, fraud, and unauthorized content. All users and transactions are monitored for compliance.
+          </p>
         </div>
       </div>
     </footer>

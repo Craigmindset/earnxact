@@ -49,7 +49,7 @@ export default function FaqSection() {
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-sm font-semibold text-white">{faq.q}</div>
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80">
                     {open ? (
                       <MdRemove className="text-xl" />
                     ) : (

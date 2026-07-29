@@ -4,7 +4,7 @@ export default function FinalCtaSection() {
   return (
     <section className="border-t border-white/10 bg-[var(--brand-black)]">
       <div className="mx-auto max-w-6xl px-4 py-14">
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[var(--brand-card-1)] p-8 md:p-12">
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[var(--brand-card-1)] p-5 sm:p-8 md:p-12">
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(900px_circle_at_20%_30%,rgba(244,163,0,0.18),transparent_55%),radial-gradient(900px_circle_at_80%_20%,rgba(120,70,255,0.16),transparent_55%)]" />
 
           <div className="grid gap-8 md:grid-cols-2 md:items-center">

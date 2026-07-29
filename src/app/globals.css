@@ -11,14 +11,47 @@
   --brand-gold: #f4a300;
 }
 
-html,
-body {
+/* ── Mobile UX foundations ── */
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
   height: 100%;
 }
 
 body {
+  height: 100%;
+  font-family: var(--font-poppins), var(--font-inter), sans-serif;
+  -webkit-font-smoothing: antialiased;
   background: var(--brand-black);
   color: white;
+}
+
+/* Eliminate 300 ms tap delay on iOS/Android */
+button,
+a,
+select,
+input,
+textarea,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Prevent iOS Safari from auto-zooming into focused inputs (font < 16 px triggers zoom) */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}
+
+.font-display {
+  font-family: var(--font-poppins), var(--font-inter), sans-serif;
 }
 
 @keyframes fadeUp {
@@ -34,4 +67,11 @@ body {
 
 .fade-up {
   animation: fadeUp 520ms ease-out both;
+}
+
+/* Respect system-level reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .fade-up {
+    animation: none;
+  }
 }

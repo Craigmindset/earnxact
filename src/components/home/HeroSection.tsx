@@ -2,9 +2,36 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { FaGoogle, FaYoutube } from "react-icons/fa6";
-import { SiTiktok } from "react-icons/si";
+import Lottie from "lottie-react";
+import { FaGoogle } from "react-icons/fa6";
 import SignupForm from "@/components/SignupForm";
+import telegramAnimation from "../../../public/images/telegram logo beat.json";
+import tiktokAnimation from "../../../public/images/tiktok icon.json";
+import youtubeAnimation from "../../../public/images/You Tube Video Play Button.json";
+
+const taskCards = [
+  {
+    href: "/signup",
+    title: "TikTok tasks",
+    description: "Sign up & explore",
+    price: "cashout",
+    animationData: tiktokAnimation,
+  },
+  {
+    href: "/signup",
+    title: "Telegram task",
+    description: "Join & engage",
+    price: "cashout",
+    animationData: telegramAnimation,
+  },
+  {
+    href: "/signup",
+    title: "YouTube task",
+    description: "Watch & subscribe",
+    price: "cashout",
+    animationData: youtubeAnimation,
+  },
+];
 
 export default function HeroSection() {
   const [email, setEmail] = useState("");
@@ -21,88 +48,59 @@ export default function HeroSection() {
       <div className="mx-auto flex min-h-[80vh] max-w-6xl items-center px-4 py-12 md:min-h-[88vh] md:py-16">
         <div className="grid w-full items-center gap-10 md:grid-cols-2 md:gap-12">
           <div className="fade-up">
-            <h1 className="text-5xl font-semibold leading-tight tracking-tight md:text-6xl lg:text-7xl">
+            <h1 className="font-display text-[2.1rem] font-extrabold leading-[1.05] tracking-[-0.03em] md:text-5xl md:leading-[0.99] md:tracking-[-0.07em] lg:text-6xl">
               Earn real <span className="text-[var(--brand-gold)]">cash</span>{" "}
               <br className="hidden md:block" />
               completing tasks online
             </h1>
 
             <p className="mt-4 max-w-xl text-base leading-relaxed text-white/65 md:text-lg">
-              Complete task online and earn legitimately today, no scam.
+              Complete task online and earn legitimately today,{" "}
+              <br className="hidden md:block" />
+              no scam!
             </p>
 
-            <div className="mt-7 grid gap-4 sm:grid-cols-3">
-              <Link
-                href="/signup"
-                className="group rounded-xl border border-white/10 bg-[var(--brand-card-1)]/90 p-4 transition hover:-translate-y-0.5 hover:border-white/15 hover:bg-[var(--brand-card-2)]"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5 text-white">
-                      <SiTiktok className="text-xl" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white">
-                        TikTok tasks
-                      </div>
-                      <div className="text-xs text-white/50">Sign up & explore</div>
-                    </div>
+            <div className="mt-6 flex gap-2 md:grid md:grid-cols-3 md:gap-2.5">
+              {taskCards.map((card) => (
+                <Link
+                  key={card.title}
+                  href={card.href}
+                  className="group flex flex-1 flex-col rounded-[18px] bg-[var(--brand-card-1)]/90 p-2.5 transition hover:-translate-y-1 hover:bg-[var(--brand-card-2)] md:mx-auto md:min-h-[190px] md:p-3"
+                >
+                  <div className="flex min-h-[80px] items-center justify-center rounded-[14px] bg-white/[0.03] px-2 py-2 md:min-h-[104px]">
+                    <Lottie
+                      animationData={card.animationData}
+                      loop
+                      className="h-12 w-12 md:h-20 md:w-20"
+                    />
                   </div>
-                  <div className="text-sm font-semibold text-[var(--brand-gold)]">
-                    $5.00
-                  </div>
-                </div>
-              </Link>
 
-              <Link
-                href="/signup"
-                className="group rounded-xl border border-white/10 bg-[var(--brand-card-1)]/90 p-4 transition hover:-translate-y-0.5 hover:border-white/15 hover:bg-[var(--brand-card-2)]"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5 text-white">
-                      <span className="text-lg font-semibold">$</span>
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white">
-                        EarnXact task
+                  <div className="mt-2.5">
+                    <div className="flex flex-col gap-0.5 md:flex-row md:items-center md:justify-between md:gap-1">
+                      <div className="text-xs font-medium leading-tight text-white md:text-sm">
+                        {card.title}
                       </div>
-                      <div className="text-xs text-white/50">Join & engage</div>
-                    </div>
-                  </div>
-                  <div className="text-sm font-semibold text-[var(--brand-gold)]">
-                    $3.00
-                  </div>
-                </div>
-              </Link>
-
-              <Link
-                href="/signup"
-                className="group rounded-xl border border-white/10 bg-[var(--brand-card-1)]/90 p-4 transition hover:-translate-y-0.5 hover:border-white/15 hover:bg-[var(--brand-card-2)]"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5 text-white">
-                      <FaYoutube className="text-xl" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white">
-                        YouTube task
-                      </div>
-                      <div className="text-xs text-white/50">
-                        Watch & subscribe
+                      <div className="shrink-0 text-[7px] font-semibold text-[var(--brand-gold)] md:text-[8px]">
+                        {card.price}
                       </div>
                     </div>
+                    <div className="mt-0.5 break-words text-[10px] leading-snug text-white/50 md:text-xs">
+                      {card.description}
+                    </div>
                   </div>
-                  <div className="text-sm font-semibold text-[var(--brand-gold)]">
-                    $4.00
-                  </div>
-                </div>
-              </Link>
+                </Link>
+              ))}
             </div>
+
+            <Link
+              href="/signup"
+              className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--brand-gold)] px-4 py-3.5 text-sm font-semibold text-black transition hover:opacity-90 md:hidden"
+            >
+              Get Started — It&apos;s Free
+            </Link>
           </div>
 
-          <div className="flex md:justify-end fade-up">
+          <div className="hidden fade-up md:flex md:justify-end">
             {!showSignupForm ? (
               <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[var(--brand-card-1)]/90 p-6 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)] backdrop-blur">
                 <div className="text-xl font-semibold">Create Free Account</div>
