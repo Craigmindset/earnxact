@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-black: #050505;
+  --brand-surface-1: #090909;
+  --brand-surface-2: #0d0d0d;
+  --brand-card-1: #111111;
+  --brand-card-2: #151515;
+  --brand-gold: #f4a300;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--brand-black);
+  color: white;
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fadeUp 520ms ease-out both;
+}
