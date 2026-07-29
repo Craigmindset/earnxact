@@ -51,7 +51,9 @@ export default function HeroSection() {
             <h1 className="font-display text-[2.1rem] font-extrabold leading-[1.05] tracking-[-0.03em] md:text-5xl md:leading-[0.99] md:tracking-[-0.07em] lg:text-6xl">
               Earn real <span className="text-[var(--brand-gold)]">cash</span>{" "}
               <br className="hidden md:block" />
-              completing tasks online
+              completing tasks{" "}
+              <br className="md:hidden" />
+              online
             </h1>
 
             <p className="mt-4 max-w-xl text-base leading-relaxed text-white/65 md:text-lg">
