@@ -38,7 +38,7 @@ export default function HeroSection() {
   const [showSignupForm, setShowSignupForm] = useState(false);
 
   return (
-    <section className="relative min-h-[80vh] md:min-h-[88vh]">
+    <section className="relative overflow-hidden min-h-[80vh] md:min-h-[88vh]">
       <div
         className="absolute inset-0 -z-20 bg-cover bg-center bg-no-repeat"
         style={{ backgroundImage: "url('/images/hero-section.jpg')" }}
