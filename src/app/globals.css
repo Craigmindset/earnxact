@@ -69,9 +69,26 @@ textarea,
   animation: fadeUp 520ms ease-out both;
 }
 
+@keyframes scrollUp {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+.animate-scroll-up {
+  animation: scrollUp 14s linear infinite;
+}
+
 /* Respect system-level reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   .fade-up {
+    animation: none;
+  }
+
+  .animate-scroll-up {
     animation: none;
   }
 }
