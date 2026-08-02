@@ -19,7 +19,7 @@ export default function FinalCtaSection() {
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/signup"
-                  className="inline-flex items-center justify-center rounded-lg bg-[var(--brand-gold)] px-6 py-3 text-sm font-semibold text-black transition hover:opacity-90"
+                  className="inline-flex items-center justify-center rounded-lg bg-[var(--brand-smoky-white)] px-6 py-3 text-sm font-semibold text-black transition hover:opacity-90"
                 >
                   Start Earning Free ↗
                 </Link>

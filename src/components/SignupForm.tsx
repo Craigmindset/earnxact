@@ -156,7 +156,7 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
         </button>
         <button
           type="button"
-          className="px-4 py-2 text-sm font-semibold text-black bg-[var(--brand-gold)]"
+          className="px-4 py-2 text-sm font-semibold text-black bg-[var(--brand-smoky-white)]"
           aria-current="page"
         >
           Register
@@ -263,7 +263,7 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
         <button
           type="submit"
           disabled={!isFormValid}
-          className="w-full rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Create Account
         </button>
@@ -302,7 +302,7 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
               <button
                 type="button"
                 onClick={() => router.push("/login")}
-                className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90"
+                className="rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90"
               >
                 Go to login now
               </button>

@@ -74,7 +74,7 @@ export default function EarnPassPage() {
               <button
                 type="button"
                 disabled={!taskClass.available}
-                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand-gold)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
               >
                 {taskClass.available && <MdTrendingUp className="text-base" />}
                 {taskClass.available ? "Get" : "Unavailable"}

@@ -176,7 +176,7 @@ export default function InviteEarnPage() {
             <button
               type="button"
               disabled={!canClaim}
-              className="rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+              className="rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
             >
               Claim
             </button>
@@ -241,7 +241,7 @@ export default function InviteEarnPage() {
                 type="button"
                 onClick={handleCopy}
                 aria-label="Copy referral link"
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-gold)] text-black transition hover:opacity-90"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-smoky-white)] text-black transition hover:opacity-90"
               >
                 {copied ? <MdCheck className="text-lg" /> : <MdContentCopy className="text-lg" />}
               </button>

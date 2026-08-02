@@ -43,7 +43,7 @@ function TabButton({
       aria-pressed={active}
       className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition ${
         active
-          ? "bg-[var(--brand-gold)] text-black"
+          ? "bg-[var(--brand-smoky-white)] text-black"
           : "text-white/70 hover:bg-white/10 hover:text-white"
       }`}
     >

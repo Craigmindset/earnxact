@@ -96,7 +96,7 @@ export default function HeroSection() {
 
             <Link
               href="/signup"
-              className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--brand-gold)] px-4 py-3.5 text-sm font-semibold text-black transition hover:opacity-90 md:hidden"
+              className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[var(--brand-smoky-white)] px-4 py-3.5 text-sm font-semibold text-black transition hover:opacity-90 md:hidden"
             >
               Get Started — It&apos;s Free
             </Link>
@@ -141,7 +141,7 @@ export default function HeroSection() {
                 <button
                   type="button"
                   onClick={() => setShowSignupForm(true)}
-                  className="mt-3 w-full rounded-lg bg-[var(--brand-gold)] px-4 py-3 text-sm font-semibold text-black transition hover:opacity-90"
+                  className="mt-3 w-full rounded-lg bg-[var(--brand-smoky-white)] px-4 py-3 text-sm font-semibold text-black transition hover:opacity-90"
                 >
                   Start Earning - It&apos;s Free
                 </button>

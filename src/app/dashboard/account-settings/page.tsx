@@ -1,12 +1,476 @@
-import ComingSoon from "@/components/dashboard/ComingSoon";
-import { MdSettings } from "react-icons/md";
+"use client";
+
+import { useRef, useState } from "react";
+import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
+import {
+  MdAccountBalance,
+  MdArrowBack,
+  MdCheckCircle,
+  MdChevronRight,
+  MdErrorOutline,
+  MdGroup,
+  MdHealthAndSafety,
+  MdLock,
+  MdPaid,
+  MdPerson,
+  MdPrivacyTip,
+  MdShield,
+  MdSupportAgent,
+  MdTrendingUp,
+  MdAccountBalanceWallet
+} from "react-icons/md";
+import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
+import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
+import { CURRENCY_SYMBOL } from "@/lib/currency";
+
+// Backend integration point:
+// - Replace with the authenticated user's real account summary figures.
+const CURRENT_BALANCE = 0;
+const TOTAL_EARNING = 0;
+const REFERRAL_EARNING = 0;
+const REFERRAL_CLAIMS = 0;
+
+// Backend integration point:
+// - Replace with the authenticated user's real profile completion score.
+const PROFILE_COMPLETION = 65;
+
+const POLICY_LINKS = [
+  { label: "Privacy Policy", icon: MdPrivacyTip, href: "/dashboard/privacy-policy" },
+  { label: "Data Protection", icon: MdShield, href: "/dashboard/data-protection" },
+  { label: "Insurance", icon: MdHealthAndSafety, href: "/dashboard/insurance" }
+];
 
 export default function AccountSettingsPage() {
+  const router = useRouter();
+  const activeTaskClass = getCurrentTaskClass();
+
+  const [pin, setPin] = useState(["", "", "", ""]);
+  const [confirmPin, setConfirmPin] = useState(["", "", "", ""]);
+  const pinRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const confirmPinRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const [pinMessage, setPinMessage] = useState<{ type: "success" | "error"; text: string } | null>(
+    null
+  );
+
+  const [accountName, setAccountName] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [withdrawalMessage, setWithdrawalMessage] = useState<string | null>(null);
+
+  const [ticketMessage, setTicketMessage] = useState("");
+  const [ticketSuccess, setTicketSuccess] = useState(false);
+
+  function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
+    const digit = event.target.value.replace(/\D/g, "").slice(-1);
+    const nextPin = [...pin];
+    nextPin[index] = digit;
+    setPin(nextPin);
+    setPinMessage(null);
+
+    if (digit && index < 3) {
+      pinRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handlePinKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Backspace" && !pin[index] && index > 0) {
+      pinRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handleConfirmPinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
+    const digit = event.target.value.replace(/\D/g, "").slice(-1);
+    const nextConfirmPin = [...confirmPin];
+    nextConfirmPin[index] = digit;
+    setConfirmPin(nextConfirmPin);
+    setPinMessage(null);
+
+    if (digit && index < 3) {
+      confirmPinRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleConfirmPinKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Backspace" && !confirmPin[index] && index > 0) {
+      confirmPinRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handleSetPin() {
+    if (!pin.every(Boolean) || !confirmPin.every(Boolean)) {
+      setPinMessage({ type: "error", text: "Please fill in both 4-digit PINs." });
+      return;
+    }
+
+    if (pin.join("") !== confirmPin.join("")) {
+      setPinMessage({ type: "error", text: "PINs do not match. Please try again." });
+      return;
+    }
+
+    setPinMessage({ type: "success", text: "Your pin has been successfully created" });
+  }
+
+  const isWithdrawalFormValid =
+    accountName.trim().length > 0 && bankName !== "" && bankAccountNumber.length === 10;
+
+  function handleSetWithdrawal(event: FormEvent) {
+    event.preventDefault();
+    if (!isWithdrawalFormValid) return;
+    setWithdrawalMessage("Your withdrawal account has been added successfully");
+  }
+
+  function handleSubmitTicket(event: FormEvent) {
+    event.preventDefault();
+    if (ticketMessage.trim().length === 0) return;
+    setTicketSuccess(true);
+    setTicketMessage("");
+  }
+
   return (
-    <ComingSoon
-      title="Account Settings"
-      description="Manage your profile, security and preferences."
-      icon={MdSettings}
-    />
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="flex items-start gap-4">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          aria-label="Go back"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+        >
+          <MdArrowBack className="text-lg" />
+        </button>
+
+        <div>
+          <h1 className="text-2xl font-bold text-white md:text-3xl">
+            Account Settings
+          </h1>
+          <p className="mt-1 text-sm text-white/50">
+            Manage your profile, security, withdrawal account and support
+            preferences.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-white/15 bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]">
+              <MdPerson className="text-3xl" />
+            </div>
+
+            <div>
+              <div className="text-xs font-medium uppercase tracking-wide text-white/50">
+                Current Plan
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-white sm:text-base">
+                {activeTaskClass ? activeTaskClass.name : "No active category"}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => router.push("/dashboard/earnpass")}
+              aria-label="Upgrade plan"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--brand-smoky-white)] text-black transition hover:opacity-90"
+            >
+              <MdTrendingUp className="text-lg" />
+            </button>
+          </div>
+
+          <div className="flex-1">
+            <div className="flex items-center justify-between text-xs text-white/50">
+              <span>Profile Completion</span>
+              <span>{PROFILE_COMPLETION}%</span>
+            </div>
+            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-[var(--brand-gold)]"
+                style={{ width: `${PROFILE_COMPLETION}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+          <div className="flex items-center gap-2 text-emerald-400">
+            <MdAccountBalanceWallet className="text-xl" />
+            <span className="text-xs font-semibold uppercase tracking-wide">
+              Current Balance
+            </span>
+          </div>
+          <div className="mt-2 text-xl font-semibold text-white">
+            {CURRENCY_SYMBOL}
+            {CURRENT_BALANCE.toLocaleString()}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/10 p-5">
+          <div className="flex items-center gap-2 text-[var(--brand-gold)]">
+            <MdPaid className="text-xl" />
+            <span className="text-xs font-semibold uppercase tracking-wide">
+              Total Earning
+            </span>
+          </div>
+          <div className="mt-2 text-xl font-semibold text-white">
+            {CURRENCY_SYMBOL}
+            {TOTAL_EARNING.toLocaleString()}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-5">
+          <div className="flex items-center gap-2 text-sky-400">
+            <MdGroup className="text-xl" />
+            <span className="text-xs font-semibold uppercase tracking-wide">
+              Referral Earning & Claims
+            </span>
+          </div>
+          <div className="mt-2 text-xl font-semibold text-white">
+            {CURRENCY_SYMBOL}
+            {REFERRAL_EARNING.toLocaleString()}
+          </div>
+          <div className="mt-1 text-xs text-white/50">
+            {REFERRAL_CLAIMS} claims made
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6">
+        <div className="flex items-center gap-2">
+          <MdLock className="text-lg text-[var(--brand-gold)]" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white md:text-base">
+            Set Pin
+          </h2>
+        </div>
+        <p className="mt-1 text-xs text-white/50">
+          Create a 4-digit PIN to secure your withdrawals.
+        </p>
+
+        <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:gap-10">
+          <div>
+            <label className="text-xs font-medium text-white/60">New PIN</label>
+            <div className="mt-1.5 flex gap-2">
+              {pin.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(element) => {
+                    pinRefs.current[index] = element;
+                  }}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={1}
+                  required
+                  value={digit}
+                  onChange={(event) => handlePinChange(index, event)}
+                  onKeyDown={(event) => handlePinKeyDown(index, event)}
+                  className="h-12 w-12 rounded-lg border border-white/10 bg-black/20 text-center text-lg font-semibold text-white outline-none focus:border-[var(--brand-gold)]"
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-white/60">Confirm PIN</label>
+            <div className="mt-1.5 flex gap-2">
+              {confirmPin.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(element) => {
+                    confirmPinRefs.current[index] = element;
+                  }}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={1}
+                  required
+                  value={digit}
+                  onChange={(event) => handleConfirmPinChange(index, event)}
+                  onKeyDown={(event) => handleConfirmPinKeyDown(index, event)}
+                  className="h-12 w-12 rounded-lg border border-white/10 bg-black/20 text-center text-lg font-semibold text-white outline-none focus:border-[var(--brand-gold)]"
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {pinMessage && (
+          <div
+            className={`mt-4 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs ${
+              pinMessage.type === "success"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                : "border-red-500/30 bg-red-500/10 text-red-400"
+            }`}
+          >
+            {pinMessage.type === "success" ? (
+              <MdCheckCircle className="shrink-0 text-sm" />
+            ) : (
+              <MdErrorOutline className="shrink-0 text-sm" />
+            )}
+            {pinMessage.text}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleSetPin}
+          className="mt-4 rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+        >
+          Submit
+        </button>
+      </div>
+
+      <form
+        onSubmit={handleSetWithdrawal}
+        className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6"
+      >
+        <div className="flex items-center gap-2">
+          <MdAccountBalance className="text-lg text-[var(--brand-gold)]" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white md:text-base">
+            Set Withdrawal
+          </h2>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <label className="text-xs font-medium text-white/60">
+              Account Name
+            </label>
+            <input
+              type="text"
+              required
+              value={accountName}
+              onChange={(event) => {
+                setAccountName(event.target.value);
+                setWithdrawalMessage(null);
+              }}
+              placeholder="Account holder's name"
+              className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--brand-gold)]"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-white/60">Bank</label>
+            <select
+              required
+              value={bankName}
+              onChange={(event) => {
+                setBankName(event.target.value);
+                setWithdrawalMessage(null);
+              }}
+              className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--brand-gold)]"
+            >
+              <option value="" className="bg-[var(--brand-card-1)]">
+                Choose your bank
+              </option>
+              {NIGERIAN_BANKS.map((bank) => (
+                <option key={bank} value={bank} className="bg-[var(--brand-card-1)]">
+                  {bank}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-white/60">
+              Bank Account Number
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              minLength={10}
+              maxLength={10}
+              pattern="\d{10}"
+              title="Enter a 10-digit account number"
+              required
+              value={bankAccountNumber}
+              onChange={(event) => {
+                setBankAccountNumber(event.target.value.replace(/\D/g, "").slice(0, 10));
+                setWithdrawalMessage(null);
+              }}
+              placeholder="0123456789"
+              className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--brand-gold)]"
+            />
+          </div>
+        </div>
+
+        {withdrawalMessage && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-400">
+            <MdCheckCircle className="shrink-0 text-sm" />
+            {withdrawalMessage}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="mt-4 rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+        >
+          Submit
+        </button>
+      </form>
+
+      <form
+        onSubmit={handleSubmitTicket}
+        className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6"
+      >
+        <div className="flex items-center gap-2">
+          <MdSupportAgent className="text-lg text-[var(--brand-gold)]" />
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-white md:text-base">
+            Support
+          </h2>
+        </div>
+        <p className="mt-1 text-xs text-white/50">Create a Ticket</p>
+
+        <textarea
+          value={ticketMessage}
+          onChange={(event) => {
+            setTicketMessage(event.target.value.slice(0, 500));
+            setTicketSuccess(false);
+          }}
+          maxLength={500}
+          required
+          rows={4}
+          placeholder="Describe the issue you're experiencing..."
+          className="mt-4 w-full resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--brand-gold)]"
+        />
+        <div className="mt-1 text-right text-[10px] text-white/40">
+          {ticketMessage.length}/500
+        </div>
+
+        {ticketSuccess && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-400">
+            <MdCheckCircle className="shrink-0 text-sm" />
+            Your ticket has been submitted. Our support team will get back to
+            you shortly.
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="mt-4 rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+        >
+          Submit
+        </button>
+      </form>
+
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-white md:text-base">
+          Legal & Protection
+        </h2>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {POLICY_LINKS.map(({ label, icon: Icon, href }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => router.push(href)}
+              className="flex items-center gap-3 rounded-xl border border-white/10 px-4 py-3 text-left transition hover:bg-white/5"
+            >
+              <Icon className="text-lg text-[var(--brand-smoky-white)]" />
+              <span className="flex-1 text-sm font-medium text-white/80">{label}</span>
+              <MdChevronRight className="text-lg text-white/40" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

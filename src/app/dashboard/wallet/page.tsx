@@ -176,7 +176,7 @@ export default function WalletPage() {
               type="button"
               onClick={handleWithdrawClick}
               disabled={!selectedMethod}
-              className="rounded-lg bg-[var(--brand-gold)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+              className="rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
             >
               Withdraw
             </button>
@@ -353,7 +353,7 @@ export default function WalletPage() {
                 type="button"
                 disabled={!isBankFormValid}
                 onClick={closeModal}
-                className="w-full rounded-lg bg-[var(--brand-gold)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
+                className="w-full rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
               >
                 Confirm
               </button>

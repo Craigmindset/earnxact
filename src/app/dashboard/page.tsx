@@ -76,7 +76,7 @@ export default function DashboardPage() {
         </div>
         <Link
           href="/dashboard/earnpass"
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--brand-gold)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
         >
           <MdTrendingUp className="text-lg" />
           Upgrade

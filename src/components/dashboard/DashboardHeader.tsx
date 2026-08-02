@@ -58,7 +58,7 @@ export default function DashboardHeader({
             </span>
             <Link
               href="/dashboard/earnpass"
-              className="inline-flex items-center gap-1 rounded-lg bg-[var(--brand-gold)] px-3 py-2 text-xs font-semibold text-black transition hover:opacity-90"
+              className="inline-flex items-center gap-1 rounded-lg bg-[var(--brand-smoky-white)] px-3 py-2 text-xs font-semibold text-black transition hover:opacity-90"
             >
               <MdTrendingUp className="text-sm" />
               Upgrade
