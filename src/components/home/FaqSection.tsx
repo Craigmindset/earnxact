@@ -9,7 +9,7 @@ const faqs = [
     a: "Earnings depend on which tasks are available to you and how many you complete. Different offers have different reward amounts."
   },
   {
-    q: "What is the minimum amount you can withdraw?",
+    q: "What is the minimum amount you can withdraw ?",
     a: "Minimum withdrawal requirements can vary by payout method. Check the cashout page in your account for the latest limits and options."
   },
   {
