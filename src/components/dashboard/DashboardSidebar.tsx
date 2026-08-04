@@ -4,7 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { IconType } from "react-icons";
-import { MdBolt, MdChevronLeft, MdChevronRight, MdOutlinePayments } from "react-icons/md";
+import {
+  MdBolt,
+  MdChevronLeft,
+  MdChevronRight,
+  MdLocalFireDepartment,
+  MdOutlinePayments
+} from "react-icons/md";
 import { FiX } from "react-icons/fi";
 import {
   CASHOUT_NAV_ITEMS,
@@ -70,7 +76,7 @@ function NavLink({
       href={item.href}
       onClick={onNavigate}
       title={collapsed ? item.label : undefined}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
+      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition md:py-3 ${
         collapsed ? "justify-center" : ""
       } ${
         active
@@ -78,8 +84,19 @@ function NavLink({
           : "text-white/70 hover:bg-white/5 hover:text-white"
       }`}
     >
-      <Icon className="text-lg shrink-0" />
-      {!collapsed && <span className="truncate">{item.label}</span>}
+      <span className="relative shrink-0">
+        <Icon className="text-lg" />
+        {item.hot && collapsed && (
+          <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-orange-500" />
+        )}
+      </span>
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {!collapsed && item.hot && (
+        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-bold text-orange-400">
+          <MdLocalFireDepartment className="text-xs" />
+          Hot
+        </span>
+      )}
     </Link>
   );
 }
@@ -154,7 +171,7 @@ export default function DashboardSidebar({
         />
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3 md:space-y-2.5">
         {items.map((item) => (
           <NavLink
             key={`${tab}-${item.href}`}

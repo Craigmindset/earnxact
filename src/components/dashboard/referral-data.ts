@@ -11,8 +11,8 @@ export type ReferralTier = {
 // Backend integration point:
 // - Replace the hardcoded commission rates and referral targets below with
 //   values fetched from your referral/commission configuration API.
-const COMMISSION_RATES = [5, 7, 10, 12, 15, 18, 20];
-const REFERRAL_TARGETS = [2, 5, 10, 15, 25, 35, 50];
+const COMMISSION_RATES = [3, 5, 7, 10, 12, 15, 18, 20];
+const REFERRAL_TARGETS = [1, 2, 5, 10, 15, 25, 35, 50];
 
 export const REFERRAL_TIERS: ReferralTier[] = TASK_CLASSES.filter(
   (taskClass) => taskClass.available

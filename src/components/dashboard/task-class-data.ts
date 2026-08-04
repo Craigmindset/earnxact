@@ -1,6 +1,7 @@
 import type { IconType } from "react-icons";
 import {
   MdGroups,
+  MdTrendingUp,
   MdRocketLaunch,
   MdMilitaryTech,
   MdSupervisorAccount,
@@ -21,12 +22,20 @@ export type TaskClass = {
 
 export const TASK_CLASSES: TaskClass[] = [
   {
-    id: "team-class",
-    name: "Team Class",
-    amount: 10000,
+    id: "task-class-1",
+    name: "Task Class 1",
+    amount: 5000,
     description: "Great for beginners starting their earning journey.",
     available: true,
     icon: MdGroups
+  },
+  {
+    id: "task-class-2",
+    name: "Task Class 2",
+    amount: 10000,
+    description: "Take on more tasks with better payout consistency.",
+    available: true,
+    icon: MdTrendingUp
   },
   {
     id: "upscale-class",

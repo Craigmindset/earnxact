@@ -22,6 +22,7 @@ export type DashboardNavItem = {
   label: string;
   href: string;
   icon: IconType;
+  hot?: boolean;
 };
 
 export const EARN_NAV_ITEMS: DashboardNavItem[] = [
@@ -30,11 +31,11 @@ export const EARN_NAV_ITEMS: DashboardNavItem[] = [
   { label: "EarnXact Tasks", href: "/dashboard/tasks", icon: MdChecklist },
   { label: "Missions", href: "/dashboard/missions", icon: MdFlag },
   { label: "EarnPass", href: "/dashboard/earnpass", icon: MdCardMembership },
-  { label: "Check in", href: "/dashboard/check-in", icon: MdEventAvailable },
-  { label: "Giveaways", href: "/dashboard/giveaways", icon: MdCardGiftcard },
+  { label: "Check in", href: "/dashboard/check-in", icon: MdEventAvailable, hot: true },
+  // { label: "Giveaways", href: "/dashboard/giveaways", icon: MdCardGiftcard },
   { label: "Leaderboard", href: "/dashboard/leaderboard", icon: MdLeaderboard },
-  { label: "Invite & Earn", href: "/dashboard/invite-earn", icon: MdGroupAdd },
-  { label: "Cashback", href: "/dashboard/cashback", icon: MdAttachMoney },
+  { label: "Invite & Earn", href: "/dashboard/invite-earn", icon: MdGroupAdd, hot: true },
+  // { label: "Cashback", href: "/dashboard/cashback", icon: MdAttachMoney },
   { label: "Wallet", href: "/dashboard/wallet", icon: MdAccountBalanceWallet },
   {
     label: "Account Settings",
@@ -44,13 +45,13 @@ export const EARN_NAV_ITEMS: DashboardNavItem[] = [
 ];
 
 export const CASHOUT_NAV_ITEMS: DashboardNavItem[] = [
-  { label: "Cash out", href: "/dashboard/cashout", icon: MdOutlinePayments },
+  { label: "Cash out", href: "/dashboard/wallet", icon: MdOutlinePayments },
   { label: "Crypto Payout", href: "/dashboard/crypto-payout", icon: FaBitcoin },
-  { label: "Check in", href: "/dashboard/check-in", icon: MdEventAvailable },
-  { label: "Giveaways", href: "/dashboard/giveaways", icon: MdCardGiftcard },
+  { label: "Check in", href: "/dashboard/check-in", icon: MdEventAvailable, hot: true },
+  // { label: "Giveaways", href: "/dashboard/giveaways", icon: MdCardGiftcard },
   { label: "Leaderboard", href: "/dashboard/leaderboard", icon: MdLeaderboard },
-  { label: "Invite & Earn", href: "/dashboard/invite-earn", icon: MdGroupAdd },
-  { label: "Cashback", href: "/dashboard/cashback", icon: MdAttachMoney },
+  { label: "Invite & Earn", href: "/dashboard/invite-earn", icon: MdGroupAdd, hot: true },
+  // { label: "Cashback", href: "/dashboard/cashback", icon: MdAttachMoney },
   { label: "Quick Status", href: "/dashboard/quick-status", icon: MdSpeed },
   { label: "Support", href: "/dashboard/support", icon: MdSupportAgent }
 ];
