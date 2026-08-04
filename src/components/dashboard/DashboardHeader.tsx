@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MdNotificationsNone, MdSupportAgent, MdTrendingUp } from "react-icons/md";
 import { FiMenu } from "react-icons/fi";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
+import LogoutButton from "@/components/dashboard/LogoutButton";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 
 type DashboardHeaderProps = {
@@ -94,6 +95,8 @@ export default function DashboardHeader({
         >
           U
         </Link>
+
+        <LogoutButton variant="icon" />
       </div>
     </header>
   );

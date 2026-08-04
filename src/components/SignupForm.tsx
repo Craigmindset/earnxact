@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MdClose, MdVisibility, MdVisibilityOff } from "react-icons/md";
+import { createClient } from "@/lib/supabase/client";
 
 type SignupFormProps = {
   initialEmail?: string;
@@ -30,7 +31,8 @@ const FORM_CACHE_KEY = "earnxact-signup-form";
 
 export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [countryId, setCountryId] = useState<CountryCode["id"]>("uk");
   const [phone, setPhone] = useState("");
@@ -39,6 +41,8 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
   const [successOpen, setSuccessOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [hasLoadedCache, setHasLoadedCache] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
 
   const country = useMemo(
@@ -52,7 +56,8 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
     if (cachedValue) {
       try {
         const parsed = JSON.parse(cachedValue) as {
-          username?: string;
+          firstName?: string;
+          lastName?: string;
           email?: string;
           countryId?: CountryCode["id"];
           phone?: string;
@@ -60,7 +65,8 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
           agreeEmails?: boolean;
         };
 
-        setUsername(parsed.username ?? "");
+        setFirstName(parsed.firstName ?? "");
+        setLastName(parsed.lastName ?? "");
         setEmail(parsed.email ?? "");
         setCountryId(parsed.countryId ?? "uk");
         setPhone(parsed.phone ?? "");
@@ -85,7 +91,8 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
     window.localStorage.setItem(
       FORM_CACHE_KEY,
       JSON.stringify({
-        username,
+        firstName,
+        lastName,
         email,
         countryId,
         phone,
@@ -93,23 +100,102 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
         agreeEmails
       })
     );
-  }, [agreeEmails, countryId, email, hasLoadedCache, password, phone, username]);
+  }, [agreeEmails, countryId, email, firstName, hasLoadedCache, lastName, password, phone]);
 
   const isFormValid =
-    username.trim().length > 0 &&
+    firstName.trim().length > 0 &&
+    lastName.trim().length > 0 &&
     email.trim().length > 0 &&
     phone.trim().length > 0 &&
     password.trim().length > 0 &&
     agreeEmails;
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!isFormValid) return;
+    if (!isFormValid || isSubmitting) return;
 
-    // Backend integration point:
-    // - Call your signup API (e.g. POST /api/auth/register) and handle validation errors.
-    // - Persist user credentials securely (never store plain passwords).
-    // - Send email verification and block login until verified.
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      const supabase = createClient();
+      const signupPayload = {
+        email: email.trim(),
+        options: {
+          data: {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            phone_num: `${country.dialCode}${phone}`,
+            account_type: "standard"
+          },
+          emailRedirectTo:
+            typeof window !== "undefined"
+              ? `${window.location.origin}/login`
+              : undefined
+        }
+      };
+
+      console.info("[Signup] Submitting signup request", {
+        email: signupPayload.email,
+        metadata: signupPayload.options.data,
+        emailRedirectTo: signupPayload.options.emailRedirectTo,
+        online: typeof navigator !== "undefined" ? navigator.onLine : "unknown"
+      });
+
+      const { data, error } = await supabase.auth.signUp({
+        email: signupPayload.email,
+        password,
+        options: signupPayload.options
+      });
+
+      if (error) {
+        console.error("[Signup] Supabase signUp returned error", {
+          message: error.message,
+          status: error.status,
+          code: error.code,
+          name: error.name
+        });
+
+        const isDatabaseSignupError =
+          error.message.toLowerCase().includes("database error saving new user") ||
+          error.message.toLowerCase().includes("unexpected_failure");
+
+        const isFetchFailure = error.message.toLowerCase().includes("fetch failed");
+
+        setErrorMessage(
+          isDatabaseSignupError
+            ? "Signup failed due a database trigger/schema issue. Re-run the Supabase migration and verify the handle_new_user trigger exists."
+            : isFetchFailure
+              ? "Network request failed while contacting Supabase. Confirm internet access, check firewall/VPN/ad-block rules, and verify your NEXT_PUBLIC_SUPABASE_URL is reachable."
+              : error.message
+        );
+
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.info("[Signup] Supabase signUp succeeded", {
+        userId: data.user?.id,
+        hasSession: Boolean(data.session)
+      });
+    } catch (err) {
+      console.error("[Signup] Unexpected exception during signUp", err);
+
+      const message = err instanceof Error ? err.message : "Unknown signup error";
+      setErrorMessage(
+        message.toLowerCase().includes("fetch")
+          ? "Network request failed while contacting Supabase. Confirm internet access, check firewall/VPN/ad-block rules, and verify your NEXT_PUBLIC_SUPABASE_URL is reachable."
+          : message
+      );
+      setIsSubmitting(false);
+      return;
+    }
+
+    setIsSubmitting(false);
+
+    // A confirmation email (with a verification link) is sent automatically
+    // by Supabase Auth. The user_profile row is created server-side by the
+    // on_auth_user_created trigger (see supabase/migrations/0001_init.sql).
     window.localStorage.removeItem(FORM_CACHE_KEY);
     setSuccessOpen(true);
     if (redirectTimerRef.current) window.clearTimeout(redirectTimerRef.current);
@@ -164,16 +250,30 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
       </div>
 
       <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label className="mb-1 block text-sm text-white/80">Username</label>
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            autoComplete="username"
-            placeholder="Enter username"
-            className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm text-white/80">First name</label>
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+              autoComplete="given-name"
+              placeholder="First name"
+              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-white/80">Last name</label>
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+              autoComplete="family-name"
+              placeholder="Last name"
+              className="w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
+            />
+          </div>
         </div>
 
         <div>
@@ -260,12 +360,18 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
           </span>
         </label>
 
+        {errorMessage ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            {errorMessage}
+          </div>
+        ) : null}
+
         <button
           type="submit"
-          disabled={!isFormValid}
+          disabled={!isFormValid || isSubmitting}
           className="w-full rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Create Account
+          {isSubmitting ? "Creating account..." : "Create Account"}
         </button>
 
         <div className="text-center text-xs text-white/50">

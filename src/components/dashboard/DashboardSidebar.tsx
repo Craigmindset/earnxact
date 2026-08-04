@@ -18,6 +18,7 @@ import {
   EARN_NAV_ITEMS,
   type DashboardNavItem
 } from "@/components/dashboard/nav-data";
+import LogoutButton from "@/components/dashboard/LogoutButton";
 
 type SidebarTab = "earn" | "cashout";
 
@@ -182,6 +183,10 @@ export default function DashboardSidebar({
           />
         ))}
       </nav>
+
+      <div className="border-t border-white/10 p-3">
+        <LogoutButton collapsed={collapsed} />
+      </div>
     </aside>
   );
 }

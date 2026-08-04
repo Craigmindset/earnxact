@@ -1,15 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MdVisibility, MdVisibilityOff } from "react-icons/md";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   return (
     <section className="relative overflow-hidden">
@@ -29,13 +41,29 @@ export default function LoginPage() {
 
           <form
             className="mt-6 space-y-4"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
+              if (isSubmitting) return;
 
-              // Backend/auth integration point:
-              // - Validate credentials with your auth provider.
-              // - Store session (httpOnly cookie / JWT) and handle errors.
-              router.push("/dashboard");
+              setErrorMessage(null);
+              setIsSubmitting(true);
+
+              const supabase = createClient();
+              const { error } = await supabase.auth.signInWithPassword({
+                email: email.trim(),
+                password
+              });
+
+              setIsSubmitting(false);
+
+              if (error) {
+                setErrorMessage(error.message);
+                return;
+              }
+
+              const redirectTo = searchParams.get("redirectTo");
+              router.push(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard");
+              router.refresh();
             }}
           >
             <div>
@@ -44,18 +72,30 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
+                required
+                autoComplete="email"
                 placeholder="Enter email"
                 className="w-full rounded-md border border-white/10 bg-black/60 px-3 py-2.5 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm text-white/80">Password</label>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="block text-sm text-white/80">Password</label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium text-[var(--brand-gold)] hover:underline"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <input
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   type={showPassword ? "text" : "password"}
+                  required
+                  autoComplete="current-password"
                   placeholder="Enter password"
                   className="w-full rounded-md border border-white/10 bg-black/60 px-3 py-2.5 pr-10 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
                 />
@@ -74,11 +114,18 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {errorMessage ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                {errorMessage}
+              </div>
+            ) : null}
+
             <button
               type="submit"
-              className="w-full rounded-md bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black hover:opacity-90"
+              disabled={isSubmitting}
+              className="w-full rounded-md bg-[var(--brand-gold)] px-4 py-2.5 text-sm font-semibold text-black hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Login
+              {isSubmitting ? "Logging in..." : "Login"}
             </button>
           </form>
 
