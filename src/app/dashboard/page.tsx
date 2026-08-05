@@ -11,6 +11,7 @@ import {
 } from "react-icons/md";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { createClient } from "@/lib/supabase/server";
 
 const STATS = [
   { label: "Wallet balance", value: `${CURRENCY_SYMBOL}0.00`, icon: MdAccountBalanceWallet },
@@ -46,17 +47,32 @@ const QUICK_ACTIONS = [
   }
 ] as const;
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
   // Backend/auth integration point:
   // - Protect this route with middleware or server-side auth checks.
   // - Fetch the authenticated user's wallet balance, stats and activity here.
   const activeTaskClass = getCurrentTaskClass();
 
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  let firstName: string | null = null;
+  if (user) {
+    const { data: profile } = await supabase
+      .from("user_profile")
+      .select("first_name")
+      .eq("user_id", user.id)
+      .single();
+    firstName = profile?.first_name ?? null;
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <div>
         <h1 className="text-2xl font-semibold text-white md:text-3xl">
-          Welcome back 👋
+          Welcome {firstName ? firstName : "back"} 👋
         </h1>
         <p className="mt-1 text-sm text-white/60">
           Here&apos;s what&apos;s happening with your EarnXact account today.

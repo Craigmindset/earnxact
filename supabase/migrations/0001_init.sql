@@ -47,10 +47,15 @@ create table if not exists public.user_profile (
   last_name    text,
   email        text not null,
   phone_num    text,
+  avatar_url   text,
   account_type account_type not null default 'standard',
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+-- Safe to re-run on an existing table (only runs if this reset section above
+-- was skipped/adjusted): ensures avatar_url exists without dropping data.
+alter table public.user_profile add column if not exists avatar_url text;
 
 create table if not exists public.membership_plans (
   id           uuid primary key default gen_random_uuid(),

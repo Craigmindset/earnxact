@@ -6,6 +6,7 @@ import { MdNotificationsNone, MdSupportAgent, MdTrendingUp } from "react-icons/m
 import { FiMenu } from "react-icons/fi";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import LogoutButton from "@/components/dashboard/LogoutButton";
+import ProfileMenu from "@/components/dashboard/ProfileMenu";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 
 type DashboardHeaderProps = {
@@ -88,13 +89,7 @@ export default function DashboardHeader({
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--brand-gold)]" />
         </button>
 
-        <Link
-          href="/dashboard/account-settings"
-          aria-label="Account settings"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-[var(--brand-gold)]/20 text-sm font-semibold text-[var(--brand-gold)] transition hover:bg-[var(--brand-gold)]/30"
-        >
-          U
-        </Link>
+        <ProfileMenu />
 
         <LogoutButton variant="icon" />
       </div>

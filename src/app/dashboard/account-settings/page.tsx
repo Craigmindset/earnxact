@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   MdAccountBalance,
@@ -14,6 +15,7 @@ import {
   MdLock,
   MdPaid,
   MdPerson,
+  MdPhotoCamera,
   MdPrivacyTip,
   MdShield,
   MdSupportAgent,
@@ -23,6 +25,7 @@ import {
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 // Backend integration point:
 // - Replace with the authenticated user's real account summary figures.
@@ -44,6 +47,10 @@ const POLICY_LINKS = [
 export default function AccountSettingsPage() {
   const router = useRouter();
   const activeTaskClass = getCurrentTaskClass();
+  const { firstName, avatarUrl, uploadAvatar } = useUserProfile();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [pin, setPin] = useState(["", "", "", ""]);
   const [confirmPin, setConfirmPin] = useState(["", "", "", ""]);
@@ -127,6 +134,24 @@ export default function AccountSettingsPage() {
     setTicketMessage("");
   }
 
+  async function handleAvatarChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setAvatarUploading(true);
+    setAvatarError(null);
+
+    try {
+      await uploadAvatar(file);
+    } catch (err) {
+      console.error("[AccountSettings] Failed to upload profile photo", err);
+      setAvatarError(err instanceof Error ? err.message : "Failed to upload image");
+    } finally {
+      setAvatarUploading(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-start gap-4">
@@ -153,8 +178,37 @@ export default function AccountSettingsPage() {
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-white/15 bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]">
-              <MdPerson className="text-3xl" />
+            <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]">
+              {avatarUrl ? (
+                <Image
+                  src={avatarUrl}
+                  alt="Profile"
+                  width={64}
+                  height={64}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <MdPerson className="text-3xl" />
+              )}
+
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                aria-label="Change profile photo"
+                title="Change profile photo"
+                className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition hover:opacity-100 disabled:opacity-100"
+              >
+                <MdPhotoCamera className="text-lg" />
+              </button>
+
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
             </div>
 
             <div>
@@ -164,6 +218,15 @@ export default function AccountSettingsPage() {
               <div className="mt-0.5 text-sm font-semibold text-white sm:text-base">
                 {activeTaskClass ? activeTaskClass.name : "No active category"}
               </div>
+              {firstName && (
+                <div className="mt-0.5 text-xs text-white/50">{firstName}</div>
+              )}
+              {avatarUploading && (
+                <div className="mt-0.5 text-xs text-white/50">Uploading photo...</div>
+              )}
+              {avatarError && (
+                <div className="mt-0.5 text-xs text-red-400">{avatarError}</div>
+              )}
             </div>
 
             <button
