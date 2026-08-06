@@ -61,6 +61,9 @@ function LoginForm() {
                 return;
               }
 
+              // Best-effort device/IP registration — never blocks login.
+              fetch("/api/auth/register-device", { method: "POST" }).catch(() => {});
+
               const redirectTo = searchParams.get("redirectTo");
               router.push(redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard");
               router.refresh();

@@ -23,6 +23,8 @@ export type UserProfileRow = {
   email: string;
   phone_num: string | null;
   avatar_url: string | null;
+  /** IP address captured on the user's first successful login. */
+  registered_device_id: string | null;
   account_type: AccountType;
   created_at: string;
   updated_at: string;

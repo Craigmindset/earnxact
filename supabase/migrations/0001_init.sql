@@ -48,6 +48,7 @@ create table if not exists public.user_profile (
   email        text not null,
   phone_num    text,
   avatar_url   text,
+  registered_device_id text,
   account_type account_type not null default 'standard',
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
@@ -56,6 +57,11 @@ create table if not exists public.user_profile (
 -- Safe to re-run on an existing table (only runs if this reset section above
 -- was skipped/adjusted): ensures avatar_url exists without dropping data.
 alter table public.user_profile add column if not exists avatar_url text;
+
+-- Stores the IP address seen on the user's first successful login. Later
+-- logins from a different IP are only logged/flagged server-side, never
+-- block sign-in. Safe to re-run on an existing table.
+alter table public.user_profile add column if not exists registered_device_id text;
 
 create table if not exists public.membership_plans (
   id           uuid primary key default gen_random_uuid(),

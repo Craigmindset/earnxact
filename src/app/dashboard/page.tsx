@@ -1,7 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
 import {
   MdAccountBalanceWallet,
   MdAttachMoney,
+  MdBolt,
   MdCardGiftcard,
   MdChecklist,
   MdEventAvailable,
@@ -70,13 +72,30 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-white md:text-3xl">
-          Welcome {firstName ? firstName : "back"} 👋
-        </h1>
-        <p className="mt-1 text-sm text-white/60">
-          Here&apos;s what&apos;s happening with your EarnXact account today.
-        </p>
+      <div className="relative overflow-hidden rounded-2xl border border-white/10">
+        <Image
+          src="/images/invite-bg.jpg"
+          alt=""
+          fill
+          priority
+          className="object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/70 to-black/40" />
+
+        <div className="relative px-6 py-10 sm:px-10 sm:py-14">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/10 px-3 py-1 text-xs font-semibold text-[var(--brand-gold)]">
+            <MdBolt className="text-sm" />
+            Your EarnXact dashboard
+          </div>
+
+          <h1 className="mt-4 text-2xl font-semibold text-white md:text-3xl">
+            Welcome {firstName ? firstName : "back"} 👋
+          </h1>
+
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/70 md:text-base">
+            Here&apos;s what&apos;s happening with your EarnXact account today.
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 sm:flex-row sm:items-center sm:justify-between md:p-5">
