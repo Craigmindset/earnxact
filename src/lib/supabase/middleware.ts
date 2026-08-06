@@ -4,6 +4,10 @@ import type { Database } from "@/lib/database.types";
 
 const PROTECTED_PREFIXES = ["/dashboard"];
 
+const REFERRAL_QUERY_PARAM = "ref";
+const REFERRAL_COOKIE_NAME = "earnxact_ref";
+const REFERRAL_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
 /**
  * Refreshes the Supabase auth session on every request and redirects
  * unauthenticated users away from protected routes. Called from the root
@@ -47,5 +51,23 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Persist ?ref=CODE into an HTTP-only cookie so the referral code survives
+  // navigation (e.g. landing page -> pricing -> signup) even if the user
+  // doesn't sign up on the exact page the link pointed to. HTTP-only means
+  // client-side JS can never read/tamper with it; the signup page (a server
+  // component) reads it via next/headers `cookies()` as a fallback when
+  // there's no `?ref=` on the signup URL itself.
+  const refParam = request.nextUrl.searchParams.get(REFERRAL_QUERY_PARAM);
+  if (refParam && refParam.trim().length > 0) {
+    response.cookies.set(REFERRAL_COOKIE_NAME, refParam.trim().toUpperCase(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: REFERRAL_COOKIE_MAX_AGE_SECONDS
+    });
+  }
+
   return response;
 }
+

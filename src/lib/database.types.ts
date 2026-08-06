@@ -25,6 +25,14 @@ export type UserProfileRow = {
   avatar_url: string | null;
   /** IP address captured on the user's first successful login. */
   registered_device_id: string | null;
+  /** Unique code this user shares to invite others. */
+  referral_code: string | null;
+  /** EarnXact wallet balance, credited by referral bonuses etc. */
+  wallet_balance: number;
+  /** FK → user_profile.user_id of whoever referred this user, if any. */
+  referred_by_id: string | null;
+  /** Full shareable referral link built from referral_code at signup time. */
+  user_referral_link: string | null;
   account_type: AccountType;
   created_at: string;
   updated_at: string;
@@ -73,6 +81,41 @@ export type WatchVideoRow = {
   watched_at: string;
 };
 
+export type ReferralRow = {
+  id: string;
+  /** FK → user_profile.user_id — the user who receives the reward. */
+  referrer_id: string;
+  /** FK → user_profile.user_id — the newly registered user. Unique: one reward per referee, ever. */
+  referee_id: string;
+  reward_amount: number;
+  /** Contact info captured from the referee at reward time. */
+  referee_first_name: string | null;
+  referee_last_name: string | null;
+  referee_email: string | null;
+  referee_phone: string | null;
+  created_at: string;
+};
+
+/**
+ * Denormalized, realtime-friendly summary row: one per user, updated
+ * transactionally by handle_new_user() / claim_referral_balance(). Never
+ * written to directly by clients — used to power live referral stats on
+ * the invite-earn dashboard via Supabase Realtime (postgres_changes).
+ */
+export type ReferralDataRow = {
+  /** UUID — FK to auth.users.id (primary key) */
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  referral_link: string | null;
+  users_referred: number;
+  /** Current unclaimed referral earnings, awaiting claim_referral_balance(). */
+  referral_balance: number;
+  last_claim_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export type Database = {
@@ -113,9 +156,28 @@ export type Database = {
         Update: Partial<Omit<WatchVideoRow, "id">>;
         Relationships: [];
       };
+      referrals: {
+        Row: ReferralRow;
+        Insert: Omit<ReferralRow, "id" | "created_at" | "reward_amount"> &
+          Partial<Pick<ReferralRow, "id" | "created_at" | "reward_amount">>;
+        Update: Partial<Omit<ReferralRow, "id">>;
+        Relationships: [];
+      };
+      referral_data: {
+        Row: ReferralDataRow;
+        Insert: Omit<ReferralDataRow, "created_at" | "updated_at" | "users_referred" | "referral_balance" | "last_claim_date"> &
+          Partial<Pick<ReferralDataRow, "created_at" | "updated_at" | "users_referred" | "referral_balance" | "last_claim_date">>;
+        Update: Partial<Omit<ReferralDataRow, "user_id">>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      claim_referral_balance: {
+        Args: Record<string, never>;
+        Returns: { claimed_amount: number; new_wallet_balance: number }[];
+      };
+    };
     Enums: {
       account_type: AccountType;
       transaction_type: TransactionType;

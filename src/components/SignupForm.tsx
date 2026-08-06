@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/client";
 type SignupFormProps = {
   initialEmail?: string;
   onClose?: () => void;
+  /** Referral code resolved server-side from ?ref= or the earnxact_ref cookie. */
+  referralCode?: string | null;
 };
 
 type CountryCode = {
@@ -29,7 +31,24 @@ const COUNTRY_CODES: CountryCode[] = [
 
 const FORM_CACHE_KEY = "earnxact-signup-form";
 
-export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
+// Excludes visually ambiguous characters (0/O, 1/I) for a friendlier code
+// to type/share. Not used for anything security-sensitive — referral codes
+// are meant to be shared publicly.
+const REFERRAL_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateReferralCode(length = 6): string {
+  const randomValues = new Uint32Array(length);
+  if (typeof window !== "undefined" && window.crypto) {
+    window.crypto.getRandomValues(randomValues);
+  } else {
+    for (let i = 0; i < length; i += 1) {
+      randomValues[i] = Math.floor(Math.random() * 0xffffffff);
+    }
+  }
+  return Array.from(randomValues, (value) => REFERRAL_CODE_ALPHABET[value % REFERRAL_CODE_ALPHABET.length]).join("");
+}
+
+export default function SignupForm({ initialEmail, onClose, referralCode }: SignupFormProps) {
   const router = useRouter();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -44,6 +63,9 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
+  // Generated once per form mount so retries after a transient error reuse
+  // the same code instead of minting a new one every attempt.
+  const [userReferralCode] = useState(() => generateReferralCode());
 
   const country = useMemo(
     () => COUNTRY_CODES.find((c) => c.id === countryId) ?? COUNTRY_CODES[0],
@@ -126,7 +148,9 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
             first_name: firstName.trim(),
             last_name: lastName.trim(),
             phone_num: `${country.dialCode}${phone}`,
-            account_type: "standard"
+            account_type: "standard",
+            user_referral_code: userReferralCode,
+            ...(referralCode ? { referral_code: referralCode } : {})
           },
           emailRedirectTo:
             typeof window !== "undefined"
@@ -230,6 +254,11 @@ export default function SignupForm({ initialEmail, onClose }: SignupFormProps) {
         </div>
         <div className="mt-1 text-xl font-semibold">EarnXact</div>
         <div className="mt-1 text-sm text-white/70">Do exactly, earn exactly</div>
+        {referralCode ? (
+          <div className="mt-3 rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/10 px-3 py-2 text-xs text-[var(--brand-gold)]">
+            You were invited with code <span className="font-semibold">{referralCode}</span> — your friend gets a ₦50 bonus once you sign up.
+          </div>
+        ) : null}
       </div>
 
       <div className="mb-5 grid grid-cols-2 overflow-hidden rounded-lg border border-white/10 bg-black/30">
