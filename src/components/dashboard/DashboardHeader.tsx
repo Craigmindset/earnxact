@@ -8,6 +8,7 @@ import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import LogoutButton from "@/components/dashboard/LogoutButton";
 import ProfileMenu from "@/components/dashboard/ProfileMenu";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 type DashboardHeaderProps = {
   onToggleMobileSidebar: () => void;
@@ -16,10 +17,8 @@ type DashboardHeaderProps = {
 export default function DashboardHeader({
   onToggleMobileSidebar
 }: DashboardHeaderProps) {
-  // Backend integration point:
-  // - Replace the placeholder wallet balance and avatar with real
-  //   authenticated user data (e.g. from your session/user API).
-  const walletBalance = `${CURRENCY_SYMBOL}0.00`;
+  const { walletBalance, loading } = useUserProfile();
+  const walletBalanceDisplay = `${CURRENCY_SYMBOL}${loading ? "0.00" : walletBalance.toFixed(2)}`;
   const activeTaskClass = getCurrentTaskClass();
 
   return (
@@ -69,7 +68,7 @@ export default function DashboardHeader({
         )}
 
         <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-[var(--brand-gold)]">
-          {walletBalance}
+          {walletBalanceDisplay}
         </span>
 
         <Link

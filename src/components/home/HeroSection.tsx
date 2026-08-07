@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import Lottie from "lottie-react";
-import { FaGoogle } from "react-icons/fa6";
 import SignupForm from "@/components/SignupForm";
 import telegramAnimation from "../../../public/images/telegram logo beat.json";
 import tiktokAnimation from "../../../public/images/tiktok icon.json";
@@ -110,32 +109,12 @@ export default function HeroSection() {
                   Earn legitimately today, no scam.
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Backend/auth integration point:
-                    // - Trigger Google OAuth (e.g. NextAuth, Clerk, Supabase Auth, Firebase Auth).
-                  }}
-                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
-                >
-                  <FaGoogle className="text-base" />
-                  <span>Continue with Google</span>
-                </button>
-
-                <div className="my-5 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-white/10" />
-                  <div className="text-xs uppercase tracking-widest text-white/45">
-                    or sign up with email
-                  </div>
-                  <div className="h-px flex-1 bg-white/10" />
-                </div>
-
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   type="email"
                   placeholder="Email address"
-                  className="w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-[var(--brand-gold)]"
+                  className="mt-5 w-full rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/35 outline-none focus:border-[var(--brand-gold)]"
                 />
 
                 <button

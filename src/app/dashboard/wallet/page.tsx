@@ -16,6 +16,7 @@ import { FaBitcoin, FaPaypal } from "react-icons/fa6";
 import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { formatRelativeTime } from "@/lib/time";
+import { useUserProfile } from "@/hooks/useUserProfile";
 import cryptoAnimation from "../../../../public/images/crypto.json";
 
 type PaymentMethodId = "bank" | "paypal" | "crypto" | "gift";
@@ -26,10 +27,6 @@ const PAYMENT_METHODS: { id: PaymentMethodId; label: string; icon: typeof MdAcco
   { id: "crypto", label: "Crypto", icon: FaBitcoin },
   { id: "gift", label: "Gift Card", icon: MdCardGiftcard }
 ];
-
-// Backend integration point:
-// - Replace with the authenticated user's real wallet balance.
-const WALLET_BALANCE = 0;
 
 // Backend integration point:
 // - Replace with a real live feed of recent payouts (API/websocket),
@@ -44,6 +41,7 @@ const CASHOUT_FEED = [
 ];
 
 export default function WalletPage() {
+  const { walletBalance, loading: loadingWallet } = useUserProfile();
   const [isPartial, setIsPartial] = useState(false);
   const [amount, setAmount] = useState("");
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodId | null>(null);
@@ -143,7 +141,7 @@ export default function WalletPage() {
                 <input
                   type="number"
                   min={0}
-                  max={WALLET_BALANCE}
+                  max={walletBalance}
                   autoFocus
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
@@ -154,7 +152,7 @@ export default function WalletPage() {
             ) : (
               <div className="mt-1 text-2xl font-semibold text-[var(--brand-gold)]">
                 {CURRENCY_SYMBOL}
-                {WALLET_BALANCE.toFixed(2)}
+                {loadingWallet ? "0.00" : walletBalance.toFixed(2)}
               </div>
             )}
           </div>

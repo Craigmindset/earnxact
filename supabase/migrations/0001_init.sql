@@ -145,6 +145,12 @@ alter table public.referrals add column if not exists referee_last_name text;
 alter table public.referrals add column if not exists referee_email text;
 alter table public.referrals add column if not exists referee_phone text;
 
+-- Tracks whether this specific referral's reward has been claimed yet.
+-- Claiming (see claim_referral_balance() below) flips this to true, credits
+-- reward_amount into user_profile.wallet_balance, and logs a transactions
+-- row - each referral is independently claimable, no minimum balance.
+alter table public.referrals add column if not exists referral_claim boolean not null default false;
+
 -- Denormalized, realtime-friendly summary row per user: one row created for
 -- every signed-up user (whether they've referred anyone yet or not) so the
 -- dashboard can subscribe to postgres_changes on a single, always-existing
@@ -207,6 +213,20 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'referral_data'
   ) then
     alter publication supabase_realtime add table public.referral_data;
+  end if;
+end $$;
+
+-- Adds user_profile to the Supabase realtime publication so the dashboard
+-- header/stat card and wallet page can subscribe to postgres_changes and
+-- reflect wallet_balance updates (e.g. a referral claim) immediately,
+-- without a page refresh. Guarded so re-running never errors.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'user_profile'
+  ) then
+    alter publication supabase_realtime add table public.user_profile;
   end if;
 end $$;
 
@@ -476,10 +496,11 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 -- ─── Claim referral earnings ───────────────────────────────────────────────────────────────
--- Moves the caller's current, unclaimed referral_data.referral_balance into
--- their spendable user_profile.wallet_balance, then resets referral_balance
--- to 0 and stamps last_claim_date. Keep the 500.00 minimum in sync with
--- MINIMUM_CLAIM in src/app/dashboard/invite-earn/page.tsx.
+-- Claims every one of the caller's own unclaimed referrals (referrals.referral_claim = false)
+-- in one shot: flips referral_claim to true, credits the total reward into
+-- user_profile.wallet_balance, logs a single 'bonus' transaction, and resets
+-- the realtime referral_data.referral_balance to 0. There is no minimum -
+-- even a single 50.00 referral reward is claimable right away.
 create or replace function public.claim_referral_balance()
 returns table(claimed_amount numeric, new_wallet_balance numeric)
 language plpgsql
@@ -487,26 +508,46 @@ security definer set search_path = public
 as $$
 declare
   v_user_id uuid := auth.uid();
-  v_balance numeric(12, 2);
+  v_total numeric(12, 2);
+  v_count int;
   v_new_wallet numeric(12, 2);
 begin
   if v_user_id is null then
     raise exception 'Not authenticated';
   end if;
 
-  -- Lock the row so two concurrent claim requests can't both succeed.
-  select referral_balance into v_balance
-  from public.referral_data
+  -- Atomically flip every currently-unclaimed referral for this referrer to
+  -- claimed, and capture exactly the rows this statement affected. A
+  -- concurrent second claim attempt will find zero matching rows (already
+  -- claimed), so it can never double-credit the same referral.
+  with claimed as (
+    update public.referrals
+    set referral_claim = true
+    where referrer_id = v_user_id
+      and referral_claim = false
+    returning reward_amount
+  )
+  select coalesce(sum(reward_amount), 0), count(*) into v_total, v_count from claimed;
+
+  if v_total <= 0 then
+    raise exception 'No unclaimed referral rewards to claim';
+  end if;
+
+  update public.user_profile
+  set wallet_balance = wallet_balance + v_total,
+      updated_at = now()
   where user_id = v_user_id
-  for update;
+  returning wallet_balance into v_new_wallet;
 
-  if v_balance is null then
-    raise exception 'No referral data found for this account';
-  end if;
-
-  if v_balance < 500.00 then
-    raise exception 'Referral balance is below the minimum claim amount';
-  end if;
+  insert into public.transactions (user_id, type, amount, status, reference, description)
+  values (
+    v_user_id,
+    'bonus',
+    v_total,
+    'completed',
+    'referral_claim',
+    'Referral bonus claim (' || v_count || ' referral' || (case when v_count = 1 then '' else 's' end) || ')'
+  );
 
   update public.referral_data
   set referral_balance = 0,
@@ -514,13 +555,7 @@ begin
       updated_at = now()
   where user_id = v_user_id;
 
-  update public.user_profile
-  set wallet_balance = wallet_balance + v_balance,
-      updated_at = now()
-  where user_id = v_user_id
-  returning wallet_balance into v_new_wallet;
-
-  return query select v_balance, v_new_wallet;
+  return query select v_total, v_new_wallet;
 end;
 $$;
 

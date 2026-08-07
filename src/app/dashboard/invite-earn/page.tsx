@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   MdCheck,
+  MdClose,
   MdContentCopy,
   MdEmail,
   MdGroupAdd,
@@ -25,11 +26,10 @@ import { createClient } from "@/lib/supabase/client";
 //   public.referral_data table (realtime-enabled) via Supabase Realtime.
 // - The referral link itself is wired to referral_data.referral_link
 //   (falls back to user_profile.user_referral_link / referral_code).
-// - Keep MINIMUM_CLAIM and REFERRAL_REWARD_AMOUNT in sync with the values
-//   hardcoded in supabase/migrations/0001_init.sql (claim_referral_balance()
-//   and handle_new_user() respectively).
+// - Every unclaimed referral reward is claimable right away (no minimum) -
+//   keep REFERRAL_REWARD_AMOUNT in sync with handle_new_user() in
+//   supabase/migrations/0001_init.sql.
 const USERNAME = "you";
-const MINIMUM_CLAIM = 500;
 const REFERRAL_REWARD_AMOUNT = 50;
 
 type ReferralStats = {
@@ -40,6 +40,15 @@ type ReferralStats = {
   lastClaimDate: string | null;
 };
 
+// One row per claimed referral, sourced directly from public.referrals
+// (referral_claim = true), newest claim first.
+type ClaimHistoryEntry = {
+  id: string;
+  refereeName: string;
+  rewardAmount: number;
+  createdAt: string;
+};
+
 export default function InviteEarnPage() {
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -47,6 +56,10 @@ export default function InviteEarnPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyRows, setHistoryRows] = useState<ClaimHistoryEntry[]>([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -140,7 +153,7 @@ export default function InviteEarnPage() {
     (tier) => tier.taskClassId === activeTaskClass?.id
   );
   const commissionRate = activeTier?.commissionRate ?? 0;
-  const canClaim = !claiming && referralBalance >= MINIMUM_CLAIM;
+  const canClaim = !claiming && referralBalance > 0;
 
   const shareTargets = useMemo(() => {
     const link = referralLink ?? "";
@@ -213,7 +226,58 @@ export default function InviteEarnPage() {
       setStats((prev) =>
         prev ? { ...prev, referralBalance: 0, lastClaimDate: new Date().toISOString() } : prev
       );
+      // The referrals rows just got flipped to claimed - refresh the history
+      // list if it's currently open so it reflects the new claim.
+      if (showHistory) loadHistory();
     }
+  }
+
+  // Loads every referral this user has already claimed, straight from
+  // public.referrals (referral_claim = true), newest first.
+  async function loadHistory() {
+    setHistoryLoading(true);
+    setHistoryError(null);
+
+    const supabase = createClient();
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setHistoryLoading(false);
+      setHistoryError("You need to be signed in to view your claim history.");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("referrals")
+      .select("id, referee_first_name, referee_last_name, reward_amount, created_at")
+      .eq("referrer_id", user.id)
+      .eq("referral_claim", true)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setHistoryError(error.message);
+      setHistoryLoading(false);
+      return;
+    }
+
+    setHistoryRows(
+      (data ?? []).map((row) => ({
+        id: row.id,
+        refereeName:
+          [row.referee_first_name, row.referee_last_name].filter(Boolean).join(" ") ||
+          "Anonymous user",
+        rewardAmount: Number(row.reward_amount),
+        createdAt: row.created_at
+      }))
+    );
+    setHistoryLoading(false);
+  }
+
+  function openHistory() {
+    setShowHistory(true);
+    loadHistory();
   }
 
   return (
@@ -318,17 +382,26 @@ export default function InviteEarnPage() {
           <div className="my-5 border-t border-white/10" />
 
           <p className="text-xs leading-relaxed text-white/60">
-            Use your referral link to invite & earn, your rewards will be
-            shown here to claim then to your main balance. Minimum claim{" "}
-            {CURRENCY_SYMBOL}
-            {MINIMUM_CLAIM}
+            Use your referral link to invite & earn. Every referral reward is
+            added here and can be claimed straight to your main balance at
+            any time - no minimum.
           </p>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-white">
-            <MdPeopleAlt className="text-lg text-[var(--brand-gold)]" />
-            Referral Count
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <MdPeopleAlt className="text-lg text-[var(--brand-gold)]" />
+              Referral Count
+            </div>
+            <button
+              type="button"
+              onClick={openHistory}
+              aria-label="View claim history"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-black/20 text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              <MdHistory className="text-lg" />
+            </button>
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -476,6 +549,71 @@ export default function InviteEarnPage() {
         before completion, no referral credit applies. If a bonus was issued
         in error, it may be reversed. Self-referrals are not allowed.
       </div>
+
+      {showHistory && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={() => setShowHistory(false)}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-[var(--brand-card-1)] p-6"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-base font-semibold text-white">
+                <MdHistory className="text-lg text-[var(--brand-gold)]" />
+                Claim History
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowHistory(false)}
+                aria-label="Close"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <MdClose className="text-lg" />
+              </button>
+            </div>
+
+            <div className="mt-5 max-h-80 space-y-3 overflow-y-auto">
+              {historyLoading ? (
+                <p className="text-sm text-white/60">Loading your claim history...</p>
+              ) : historyError ? (
+                <p className="text-sm text-red-400">{historyError}</p>
+              ) : historyRows.length === 0 ? (
+                <p className="text-sm text-white/60">
+                  You haven&apos;t claimed any referral bonuses yet.
+                </p>
+              ) : (
+                historyRows.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3"
+                  >
+                    <div className="flex flex-col">
+                      <span className="text-sm font-semibold text-white">
+                        {entry.refereeName}
+                      </span>
+                      <span className="text-xs text-white/50">
+                        {new Date(entry.createdAt).toLocaleString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
+                    <span className="text-sm font-semibold text-[var(--brand-gold)]">
+                      {CURRENCY_SYMBOL}
+                      {entry.rewardAmount.toFixed(2)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

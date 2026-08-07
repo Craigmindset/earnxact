@@ -43,7 +43,7 @@ export default function FinalCtaSection() {
                 Create your free account
               </div>
               <div className="mt-2 text-sm leading-relaxed text-white/60">
-                Use email or Google to register, then choose tasks that match your
+                Register with your email, then choose tasks that match your
                 interests.
               </div>
             </div>

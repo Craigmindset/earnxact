@@ -1,7 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
-  MdAccountBalanceWallet,
   MdAttachMoney,
   MdBolt,
   MdCardGiftcard,
@@ -12,11 +11,11 @@ import {
   MdTrendingUp
 } from "react-icons/md";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
+import WalletBalanceStat from "@/components/dashboard/WalletBalanceStat";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { createClient } from "@/lib/supabase/server";
 
 const STATS = [
-  { label: "Wallet balance", value: `${CURRENCY_SYMBOL}0.00`, icon: MdAccountBalanceWallet },
   { label: "Today's earnings", value: `${CURRENCY_SYMBOL}0.00`, icon: MdAttachMoney },
   { label: "Tasks completed", value: "0", icon: MdChecklist },
   { label: "Check-in streak", value: "0 days", icon: MdEventAvailable }
@@ -119,6 +118,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <WalletBalanceStat />
         {STATS.map(({ label, value, icon: Icon }) => (
           <div
             key={label}

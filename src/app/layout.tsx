@@ -27,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`min-h-screen ${poppins.variable} ${inter.variable}`}>
+      <body
+        className={`min-h-screen ${poppins.variable} ${inter.variable}`}
+        suppressHydrationWarning
+      >
         {children}
       </body>
     </html>

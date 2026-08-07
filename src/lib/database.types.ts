@@ -93,6 +93,8 @@ export type ReferralRow = {
   referee_last_name: string | null;
   referee_email: string | null;
   referee_phone: string | null;
+  /** True once this referral's reward has been claimed via claim_referral_balance(). */
+  referral_claim: boolean;
   created_at: string;
 };
 
@@ -158,8 +160,8 @@ export type Database = {
       };
       referrals: {
         Row: ReferralRow;
-        Insert: Omit<ReferralRow, "id" | "created_at" | "reward_amount"> &
-          Partial<Pick<ReferralRow, "id" | "created_at" | "reward_amount">>;
+        Insert: Omit<ReferralRow, "id" | "created_at" | "reward_amount" | "referral_claim"> &
+          Partial<Pick<ReferralRow, "id" | "created_at" | "reward_amount" | "referral_claim">>;
         Update: Partial<Omit<ReferralRow, "id">>;
         Relationships: [];
       };
