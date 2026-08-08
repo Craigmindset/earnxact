@@ -230,6 +230,19 @@ begin
   end if;
 end $$;
 
+-- Adds daily_checkins to the Supabase realtime publication so the check-in
+-- page can reflect a claim made on another device/tab immediately. Guarded
+-- so re-running never errors.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'daily_checkins'
+  ) then
+    alter publication supabase_realtime add table public.daily_checkins;
+  end if;
+end $$;
+
 create table if not exists public.membership_plans (
   id           uuid primary key default gen_random_uuid(),
   name         text not null,
@@ -270,12 +283,44 @@ create table if not exists public.watch_videos (
   watched_at  timestamptz not null default now()
 );
 
+-- Daily check-in ledger: one row per user per Nigeria-calendar-day claimed.
+-- The unique constraint on (user_id, check_in_date) is what actually
+-- prevents double-claiming the same day, even under concurrent requests -
+-- see claim_daily_checkin() below, which is the only way rows are written.
+create table if not exists public.daily_checkins (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  device_id     text not null,
+  check_in_date date not null,
+  streak        integer not null default 1,
+  reward        numeric not null default 0,
+  created_at    timestamptz not null default now(),
+  constraint daily_checkins_user_date_unique unique (user_id, check_in_date)
+);
+
+-- Single-row config table so the daily check-in reward amount can be
+-- changed at any time (update this row's reward_price via SQL) without a
+-- code deploy - claim_daily_checkin() reads the current value on every
+-- claim and stamps it onto that check-in's own "reward" column, so past
+-- check-ins keep whatever amount they were actually paid.
+create table if not exists public.checkin_settings (
+  id           boolean primary key default true,
+  reward_price numeric(12, 2) not null default 10.00,
+  updated_at   timestamptz not null default now(),
+  constraint checkin_settings_singleton check (id)
+);
+
+insert into public.checkin_settings (id, reward_price)
+values (true, 10.00)
+on conflict (id) do nothing;
+
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 
 create index if not exists transactions_user_id_idx on public.transactions(user_id);
 create index if not exists users_mission_user_id_idx on public.users_mission(user_id);
 create index if not exists watch_videos_user_id_idx on public.watch_videos(user_id);
 create index if not exists referrals_referrer_id_idx on public.referrals(referrer_id);
+create index if not exists daily_checkins_user_id_idx on public.daily_checkins(user_id);
 
 -- ─── Row Level Security ───────────────────────────────────────────────────────
 
@@ -286,6 +331,8 @@ alter table public.users_mission enable row level security;
 alter table public.watch_videos enable row level security;
 alter table public.referrals enable row level security;
 alter table public.referral_data enable row level security;
+alter table public.daily_checkins enable row level security;
+alter table public.checkin_settings enable row level security;
 
 drop policy if exists "Users can view their own profile" on public.user_profile;
 create policy "Users can view their own profile"
@@ -342,6 +389,23 @@ drop policy if exists "Users can view their own referral data" on public.referra
 create policy "Users can view their own referral data"
   on public.referral_data for select
   using (auth.uid() = user_id);
+
+-- Users can only see their own check-in history. No insert/update/delete
+-- policy is defined for regular users - all writes happen exclusively via
+-- the SECURITY DEFINER claim_daily_checkin() function below.
+drop policy if exists "Users can view their own check-ins" on public.daily_checkins;
+create policy "Users can view their own check-ins"
+  on public.daily_checkins for select
+  using (auth.uid() = user_id);
+
+-- Any signed-in user can read the current reward price (so the client can
+-- display "Claim ₦10" before claiming). No insert/update/delete policy for
+-- regular users - only ever changed by an admin running SQL directly.
+drop policy if exists "Authenticated users can view checkin settings" on public.checkin_settings;
+create policy "Authenticated users can view checkin settings"
+  on public.checkin_settings for select
+  to authenticated
+  using (true);
 
 -- ─── Auto-create a user_profile row whenever a new auth user signs up ────────
 -- Reads first_name/last_name/phone_num/account_type from the metadata passed
@@ -560,3 +624,91 @@ end;
 $$;
 
 grant execute on function public.claim_referral_balance() to authenticated;
+
+-- ─── Claim daily check-in ────────────────────────────────────────────────────
+-- Claims *today's* check-in reward (Nigeria/Africa-Lagos calendar day, not
+-- UTC), once per day per user. Computes the new streak by looking at the
+-- caller's own most recent check-in: if it was exactly yesterday (Nigeria
+-- time), the streak continues (+1); otherwise it resets to 1. Credits the
+-- current checkin_settings.reward_price into user_profile.wallet_balance
+-- and logs a 'bonus' transaction, same pattern as claim_referral_balance().
+create or replace function public.claim_daily_checkin()
+returns table(streak integer, reward numeric, new_wallet_balance numeric, check_in_date date)
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_today date := (now() at time zone 'Africa/Lagos')::date;
+  v_device_id text;
+  v_reward_price numeric(12, 2);
+  v_last_date date;
+  v_last_streak integer;
+  v_new_streak integer;
+  v_new_wallet numeric(12, 2);
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if exists (
+    select 1 from public.daily_checkins dc
+    where dc.user_id = v_user_id and dc.check_in_date = v_today
+  ) then
+    raise exception 'You have already checked in today';
+  end if;
+
+  select coalesce(registered_device_id, 'web') into v_device_id
+  from public.user_profile
+  where user_id = v_user_id;
+
+  select reward_price into v_reward_price from public.checkin_settings where id = true;
+  v_reward_price := coalesce(v_reward_price, 10.00);
+
+  -- Most recent check-in this user has ever made (any date), used purely
+  -- to decide whether today continues the streak or starts a new one.
+  -- Table alias (dc) is required here: without it, "check_in_date"/"streak"
+  -- are ambiguous between the daily_checkins columns and this function's
+  -- own "returns table(...)" output columns of the same names.
+  select dc.check_in_date, dc.streak into v_last_date, v_last_streak
+  from public.daily_checkins dc
+  where dc.user_id = v_user_id
+  order by dc.check_in_date desc
+  limit 1;
+
+  if v_last_date = v_today - 1 then
+    v_new_streak := v_last_streak + 1;
+  else
+    v_new_streak := 1;
+  end if;
+
+  begin
+    insert into public.daily_checkins (user_id, device_id, check_in_date, streak, reward)
+    values (v_user_id, coalesce(v_device_id, 'web'), v_today, v_new_streak, v_reward_price);
+  exception
+    when unique_violation then
+      -- Lost a race against a concurrent claim for the same day.
+      raise exception 'You have already checked in today';
+  end;
+
+  update public.user_profile
+  set wallet_balance = wallet_balance + v_reward_price,
+      updated_at = now()
+  where user_id = v_user_id
+  returning wallet_balance into v_new_wallet;
+
+  insert into public.transactions (user_id, type, amount, status, reference, description)
+  values (
+    v_user_id,
+    'bonus',
+    v_reward_price,
+    'completed',
+    'daily_checkin',
+    'Daily check-in reward (day ' || v_new_streak || ' streak)'
+  );
+
+  return query select v_new_streak, v_reward_price, v_new_wallet, v_today;
+end;
+$$;
+
+grant execute on function public.claim_daily_checkin() to authenticated;

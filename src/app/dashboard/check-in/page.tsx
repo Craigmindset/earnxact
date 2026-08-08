@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   MdAttachMoney,
   MdCalendarToday,
@@ -11,46 +12,129 @@ import {
   MdLocalFireDepartment
 } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
-import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
+import { createClient } from "@/lib/supabase/client";
 
+// Backend integration point:
+// - Every claim is recorded in public.daily_checkins (one row per user per
+//   Nigeria/Africa-Lagos calendar day). The reward amount paid is whatever
+//   public.checkin_settings.reward_price was at claim time - update that
+//   single row via SQL to change the reward going forward, no deploy needed.
+// - Streaks, wallet crediting and the 'bonus' transactions log are all
+//   handled atomically by claim_daily_checkin() in
+//   supabase/migrations/0001_init.sql.
 type DayStatus = "completed" | "next" | "milestone" | "locked" | "grand";
 
-const DAY_NODES: { day: number; status: DayStatus }[] = [
-  { day: 1, status: "completed" },
-  { day: 2, status: "next" },
-  { day: 3, status: "milestone" },
-  { day: 4, status: "locked" },
-  { day: 5, status: "locked" },
-  { day: 6, status: "locked" },
-  { day: 7, status: "grand" }
-];
+// Returns the caller's current Nigeria (Africa/Lagos) calendar date as
+// YYYY-MM-DD, matching the format Postgres returns for a `date` column - so
+// it can be compared directly against daily_checkins.check_in_date.
+function getNigeriaDateString(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(date);
+}
 
-// Backend integration point:
-// - Replace the mock streak/metrics values below with the authenticated
-//   user's real check-in history and rewards.
-const CURRENT_STREAK = 1;
-const LIFETIME_EARNINGS = 0.03;
-const TOTAL_CHECK_INS = 1;
+// Builds the 7-day visual progress row from the user's real streak. Purely
+// decorative (day 3 / day 7 highlight a scratch card / lucky wheel) - the
+// actual reward paid is flat, driven by checkin_settings.reward_price.
+function buildDayNodes(streak: number, checkedInToday: boolean): { day: number; status: DayStatus }[] {
+  const cyclePosition = checkedInToday ? ((streak - 1) % 7) + 1 : (streak % 7) + 1;
 
-const UPCOMING_DAYS = [1, 2, 3, 4, 5, 6, 7];
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = i + 1;
+    let status: DayStatus;
 
-// Backend integration point:
-// - Replace with the real per-day check-in reward configured for the
-//   user's active task class/category.
-function getClaimAmount(taskClassId: string | null, day: number): number {
-  if (!taskClassId) return 0;
+    if (checkedInToday && day <= cyclePosition) status = "completed";
+    else if (!checkedInToday && day < cyclePosition) status = "completed";
+    else if (!checkedInToday && day === cyclePosition) status = "next";
+    else if (day === 3) status = "milestone";
+    else if (day === 7) status = "grand";
+    else status = "locked";
 
-  if (taskClassId === "team-class") return 50;
-  if (taskClassId === "executive" || taskClassId === "senior-executive") return 2000;
-
-  // Mid Executive down to Junior Manager (and other mid tiers) earn a
-  // deterministic pseudo-random amount between 100 and 500.
-  const seed = (day * 37 + taskClassId.length * 13) % 401;
-  return 100 + seed;
+    return { day, status };
+  });
 }
 
 export default function CheckInPage() {
-  const activeTaskClass = getCurrentTaskClass();
+  const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [rewardPrice, setRewardPrice] = useState(10);
+  const [streak, setStreak] = useState(0);
+  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
+  const [lifetimeEarnings, setLifetimeEarnings] = useState(0);
+  const [totalCheckIns, setTotalCheckIns] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const supabase = createClient();
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      const [{ data: settings }, { data: checkins }] = await Promise.all([
+        supabase.from("checkin_settings").select("reward_price").limit(1).maybeSingle(),
+        supabase
+          .from("daily_checkins")
+          .select("check_in_date, streak, reward")
+          .eq("user_id", user.id)
+          .order("check_in_date", { ascending: false })
+      ]);
+
+      if (cancelled) return;
+
+      if (settings?.reward_price != null) {
+        setRewardPrice(Number(settings.reward_price));
+      }
+
+      const rows = checkins ?? [];
+      const latest = rows[0];
+      const todayStr = getNigeriaDateString();
+
+      setStreak(latest ? latest.streak : 0);
+      setHasCheckedInToday(latest ? latest.check_in_date === todayStr : false);
+      setTotalCheckIns(rows.length);
+      setLifetimeEarnings(rows.reduce((sum, row) => sum + Number(row.reward), 0));
+      setLoading(false);
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleClaim() {
+    setClaiming(true);
+    setClaimError(null);
+
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("claim_daily_checkin");
+
+    if (error) {
+      setClaimError(error.message);
+      setClaiming(false);
+      return;
+    }
+
+    const result = data?.[0];
+    if (result) {
+      setStreak(result.streak);
+      setRewardPrice(Number(result.reward));
+      setHasCheckedInToday(true);
+      setLifetimeEarnings((prev) => prev + Number(result.reward));
+      setTotalCheckIns((prev) => prev + 1);
+    }
+
+    setClaiming(false);
+  }
+
+  const dayNodes = buildDayNodes(streak, hasCheckedInToday);
+  const canClaim = !loading && !claiming && !hasCheckedInToday;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -59,8 +143,8 @@ export default function CheckInPage() {
           Daily Check-In
         </h1>
         <p className="mt-1 text-sm text-white/50">
-          Claim once per day (UTC). Day 3 unlocks a free Starter scratch
-          card, and day 7 unlocks a Lucky Wheel spin.
+          Claim once per day (Nigeria time). Day 3 unlocks a free Starter
+          scratch card, and day 7 unlocks a Lucky Wheel spin.
         </p>
       </div>
 
@@ -74,14 +158,14 @@ export default function CheckInPage() {
           <div>
             <h2 className="text-base font-bold text-white">Your streak</h2>
             <p className="mt-1 text-sm text-white/50">
-              Come back each day before UTC midnight to keep your streak and
-              unlock scratch cards.
+              Come back each day before midnight (Nigeria time) to keep your
+              streak and unlock scratch cards.
             </p>
           </div>
         </div>
 
         <div className="mt-6 flex items-start justify-between gap-1 overflow-x-auto sm:gap-2">
-          {DAY_NODES.map((node) => (
+          {dayNodes.map((node) => (
             <div
               key={node.day}
               className="flex flex-1 flex-col items-center gap-2"
@@ -125,12 +209,23 @@ export default function CheckInPage() {
 
         <button
           type="button"
-          disabled
-          className="mt-6 flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-zinc-800/80 px-4 py-3 text-sm font-semibold text-white/40"
+          onClick={handleClaim}
+          disabled={!canClaim}
+          className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand-gold)] px-4 py-3 text-sm font-semibold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-zinc-800/80 disabled:text-white/40 disabled:hover:brightness-100"
         >
           <MdCardGiftcard className="text-lg" />
-          Come back tomorrow
+          {loading
+            ? "Loading..."
+            : claiming
+              ? "Claiming..."
+              : hasCheckedInToday
+                ? "Come back tomorrow"
+                : `Claim ${CURRENCY_SYMBOL}${rewardPrice.toFixed(2)}`}
         </button>
+
+        {claimError && (
+          <p className="mt-2 text-xs text-red-400">{claimError}</p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -140,7 +235,7 @@ export default function CheckInPage() {
           </div>
           <div>
             <div className="text-lg font-semibold text-white">
-              Day {CURRENT_STREAK}
+              Day {streak}
             </div>
             <div className="text-xs text-white/50">Current streak</div>
           </div>
@@ -153,7 +248,7 @@ export default function CheckInPage() {
           <div>
             <div className="text-lg font-semibold text-white">
               {CURRENCY_SYMBOL}
-              {LIFETIME_EARNINGS.toFixed(2)}
+              {lifetimeEarnings.toFixed(2)}
             </div>
             <div className="text-xs text-white/50">Lifetime from check-ins</div>
           </div>
@@ -165,7 +260,7 @@ export default function CheckInPage() {
           </div>
           <div>
             <div className="text-lg font-semibold text-white">
-              {TOTAL_CHECK_INS}
+              {totalCheckIns}
             </div>
             <div className="text-xs text-white/50">Total check-ins</div>
           </div>
@@ -176,22 +271,19 @@ export default function CheckInPage() {
         <h2 className="text-base font-bold text-white">More to claim ahead</h2>
 
         <div className="mt-4 divide-y divide-white/10 overflow-hidden rounded-xl border border-white/10">
-          {UPCOMING_DAYS.map((day) => {
-            const amount = getClaimAmount(activeTaskClass?.id ?? null, day);
-
-            return (
-              <div
-                key={day}
-                className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition hover:bg-white/5"
-              >
-                <span className="font-medium text-white/80">Day {day}</span>
-                <span className="text-white/50">Yours to claim</span>
-                <span className="text-right font-semibold text-[var(--brand-gold)]">
-                  {activeTaskClass ? `${CURRENCY_SYMBOL}${amount.toLocaleString()}` : "Locked"}
-                </span>
-              </div>
-            );
-          })}
+          {[1, 2, 3, 4, 5, 6, 7].map((day) => (
+            <div
+              key={day}
+              className="flex items-center justify-between gap-3 px-4 py-3 text-sm transition hover:bg-white/5"
+            >
+              <span className="font-medium text-white/80">Day {day}</span>
+              <span className="text-white/50">Yours to claim</span>
+              <span className="text-right font-semibold text-[var(--brand-gold)]">
+                {CURRENCY_SYMBOL}
+                {rewardPrice.toFixed(2)}
+              </span>
+            </div>
+          ))}
         </div>
 
         <div className="mt-5 flex items-start gap-2 rounded-xl border border-white/10 bg-black/20 p-4 text-xs leading-relaxed text-white/60">
@@ -200,9 +292,9 @@ export default function CheckInPage() {
             <div className="mb-1 text-sm font-semibold text-white">
               How it works
             </div>
-            Never skip a day check-in, claim your EarnXact returns. Please
-            note check-in bonuses are fully categorized and may not be
-            available to your category.
+            Never skip a day check-in, claim your EarnXact returns. Check-in
+            resets at midnight Nigeria time - miss a day and your streak
+            starts back at day 1.
           </div>
         </div>
       </div>

@@ -118,6 +118,37 @@ export type ReferralDataRow = {
   updated_at: string;
 };
 
+/**
+ * One row per user per Nigeria-calendar-day claimed via claim_daily_checkin().
+ * The unique (user_id, check_in_date) constraint on the live table guarantees
+ * at most one claim per user per day.
+ */
+export type DailyCheckinRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  device_id: string;
+  /** Nigeria (Africa/Lagos) calendar date this check-in was claimed on. */
+  check_in_date: string;
+  /** Consecutive-day streak as of this check-in (resets to 1 after a gap). */
+  streak: number;
+  /** Amount actually paid for this check-in (checkin_settings.reward_price at claim time). */
+  reward: number;
+  created_at: string;
+};
+
+/**
+ * Single-row config table: reward_price is the amount every new daily
+ * check-in claim currently pays out. Update this row's reward_price via SQL
+ * to change the reward going forward — past daily_checkins rows keep
+ * whatever amount they were actually paid.
+ */
+export type CheckinSettingsRow = {
+  id: true;
+  reward_price: number;
+  updated_at: string;
+};
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export type Database = {
@@ -172,12 +203,29 @@ export type Database = {
         Update: Partial<Omit<ReferralDataRow, "user_id">>;
         Relationships: [];
       };
+      daily_checkins: {
+        Row: DailyCheckinRow;
+        Insert: Omit<DailyCheckinRow, "id" | "created_at" | "streak" | "reward"> &
+          Partial<Pick<DailyCheckinRow, "id" | "created_at" | "streak" | "reward">>;
+        Update: Partial<Omit<DailyCheckinRow, "id">>;
+        Relationships: [];
+      };
+      checkin_settings: {
+        Row: CheckinSettingsRow;
+        Insert: Partial<CheckinSettingsRow>;
+        Update: Partial<CheckinSettingsRow>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
       claim_referral_balance: {
         Args: Record<string, never>;
         Returns: { claimed_amount: number; new_wallet_balance: number }[];
+      };
+      claim_daily_checkin: {
+        Args: Record<string, never>;
+        Returns: { streak: number; reward: number; new_wallet_balance: number; check_in_date: string }[];
       };
     };
     Enums: {
