@@ -252,6 +252,29 @@ create table if not exists public.membership_plans (
   created_at   timestamptz not null default now()
 );
 
+-- Seeds a default "Free" plan every user starts on, so
+-- user_profile.membership_plan_id always resolves to a real row (rather
+-- than being null / showing a blank category). Safe to re-run - only
+-- inserts if a plan with this exact name doesn't already exist.
+insert into public.membership_plans (name, amount, description, is_available)
+select 'Free', 0, 'The default EarnXact membership - upgrade anytime for higher payouts.', true
+where not exists (select 1 from public.membership_plans where name = 'Free');
+
+-- Links each user to their currently chosen/active row in membership_plans
+-- (e.g. the plan shown as their "category" on the Tasks page). Nullable so
+-- existing rows don't break; backfilled to the Free plan just below.
+-- on delete set null - losing the referenced plan should never cascade-
+-- delete a user's profile.
+alter table public.user_profile
+  add column if not exists membership_plan_id uuid references public.membership_plans(id) on delete set null;
+
+-- One-time backfill: every user without a membership_plan_id yet is put on
+-- the default Free plan. Safe to re-run - only touches rows still null.
+update public.user_profile
+set membership_plan_id = (select id from public.membership_plans where name = 'Free' limit 1),
+    updated_at = now()
+where membership_plan_id is null;
+
 create table if not exists public.transactions (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -313,6 +336,77 @@ create table if not exists public.checkin_settings (
 insert into public.checkin_settings (id, reward_price)
 values (true, 10.00)
 on conflict (id) do nothing;
+
+-- Catalog of the Mon-Fri daily tasks shown on /dashboard/tasks. weekday
+-- follows ISO (1=Monday ... 5=Friday) - deliberately capped at 5 so
+-- weekends never have an active task. Admin-managed: edit title/
+-- description/reward directly via SQL, no code deploy needed.
+create table if not exists public.daily_task_templates (
+  id          uuid primary key default gen_random_uuid(),
+  weekday     smallint not null check (weekday between 1 and 5),
+  title       text not null,
+  description text not null,
+  reward      numeric(12, 2) not null default 0,
+  is_active   boolean not null default true,
+  created_at  timestamptz not null default now(),
+  constraint daily_task_templates_weekday_unique unique (weekday)
+);
+
+insert into public.daily_task_templates (weekday, title, description, reward)
+values
+  (1, 'Monday Growth Task', 'Join our Telegram channel and refer 3 users to join your earning circle. Upload a screenshot showing you joined + your referral shares as proof.', 20.00),
+  (2, 'Tuesday Growth Task', 'Share your referral link in 2 WhatsApp groups and follow our official X (Twitter) page. Upload a screenshot of both as proof.', 20.00),
+  (3, 'Wednesday Growth Task', 'Post about EarnXact on your WhatsApp status and keep it up for the day. Upload a screenshot of your status as proof.', 20.00),
+  (4, 'Thursday Growth Task', 'Invite 2 new users using your referral link and get them to sign up. Upload a screenshot of your referral count as proof.', 20.00),
+  (5, 'Friday Growth Task', 'Join our Telegram channel, react to the pinned post, and refer 1 new user. Upload a screenshot as proof.', 20.00)
+on conflict (weekday) do nothing;
+
+alter table public.daily_task_templates enable row level security;
+
+-- Anyone signed in can read the task catalog (needed to render the cards).
+-- No insert/update/delete policy for regular users - only ever changed by
+-- an admin running SQL directly.
+drop policy if exists "Authenticated users can view daily task templates" on public.daily_task_templates;
+create policy "Authenticated users can view daily task templates"
+  on public.daily_task_templates for select
+  to authenticated
+  using (true);
+
+-- One submission per user per template per Nigeria-calendar-day. Written
+-- exclusively via the SECURITY DEFINER submit_daily_task() function below,
+-- which also uploads-credits the reward atomically.
+create table if not exists public.task_submissions (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  template_id   uuid not null references public.daily_task_templates(id) on delete cascade,
+  task_date     date not null,
+  status        text not null default 'completed',
+  proof_url     text not null,
+  reward        numeric(12, 2) not null default 0,
+  submitted_at  timestamptz not null default now(),
+  constraint task_submissions_user_template_date_unique unique (user_id, template_id, task_date)
+);
+
+create index if not exists task_submissions_user_id_idx on public.task_submissions(user_id);
+
+alter table public.task_submissions enable row level security;
+
+drop policy if exists "Users can view their own task submissions" on public.task_submissions;
+create policy "Users can view their own task submissions"
+  on public.task_submissions for select
+  using (auth.uid() = user_id);
+
+-- Realtime, so the checkbox on /dashboard/tasks flips to completed
+-- immediately across any open tab/device once a submission lands.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'task_submissions'
+  ) then
+    alter publication supabase_realtime add table public.task_submissions;
+  end if;
+end $$;
 
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 
@@ -712,3 +806,80 @@ end;
 $$;
 
 grant execute on function public.claim_daily_checkin() to authenticated;
+
+-- ─── Submit a daily task ──────────────────────────────────────────────────────
+-- Submits proof for *today's* Mon-Fri task (Nigeria/Africa-Lagos calendar
+-- day), once per user per template per day (enforced by
+-- task_submissions_user_template_date_unique). Rejects submissions for a
+-- template that isn't today's weekday, or a second submission for the same
+-- day. Credits the template's reward into user_profile.wallet_balance and
+-- logs a 'bonus' transaction, same pattern as claim_daily_checkin().
+create or replace function public.submit_daily_task(p_template_id uuid, p_proof_url text)
+returns table(status text, reward numeric, new_wallet_balance numeric)
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_today date := (now() at time zone 'Africa/Lagos')::date;
+  v_weekday smallint := extract(isodow from ((now() at time zone 'Africa/Lagos')::date))::smallint;
+  v_template_weekday smallint;
+  v_template_title text;
+  v_reward numeric(12, 2);
+  v_is_active boolean;
+  v_new_wallet numeric(12, 2);
+begin
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  if p_proof_url is null or length(trim(p_proof_url)) = 0 then
+    raise exception 'Proof screenshot is required';
+  end if;
+
+  select dtt.weekday, dtt.title, dtt.reward, dtt.is_active
+  into v_template_weekday, v_template_title, v_reward, v_is_active
+  from public.daily_task_templates dtt
+  where dtt.id = p_template_id;
+
+  if v_template_weekday is null then
+    raise exception 'Task not found';
+  end if;
+
+  if not v_is_active then
+    raise exception 'This task is not currently available';
+  end if;
+
+  if v_template_weekday <> v_weekday then
+    raise exception 'This task is not available today';
+  end if;
+
+  begin
+    insert into public.task_submissions (user_id, template_id, task_date, status, proof_url, reward)
+    values (v_user_id, p_template_id, v_today, 'completed', p_proof_url, v_reward);
+  exception
+    when unique_violation then
+      raise exception 'You have already submitted today''s task';
+  end;
+
+  update public.user_profile
+  set wallet_balance = wallet_balance + v_reward,
+      updated_at = now()
+  where user_id = v_user_id
+  returning wallet_balance into v_new_wallet;
+
+  insert into public.transactions (user_id, type, amount, status, reference, description)
+  values (
+    v_user_id,
+    'bonus',
+    v_reward,
+    'completed',
+    'daily_task',
+    'Daily task reward: ' || v_template_title
+  );
+
+  return query select 'completed'::text, v_reward, v_new_wallet;
+end;
+$$;
+
+grant execute on function public.submit_daily_task(uuid, text) to authenticated;

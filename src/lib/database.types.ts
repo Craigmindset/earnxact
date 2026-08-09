@@ -33,6 +33,8 @@ export type UserProfileRow = {
   referred_by_id: string | null;
   /** Full shareable referral link built from referral_code at signup time. */
   user_referral_link: string | null;
+  /** FK → membership_plans.id — the user's currently chosen/active plan. */
+  membership_plan_id: string | null;
   account_type: AccountType;
   created_at: string;
   updated_at: string;
@@ -149,6 +151,42 @@ export type CheckinSettingsRow = {
   updated_at: string;
 };
 
+/**
+ * Catalog of the Mon-Fri daily tasks shown on /dashboard/tasks. weekday is
+ * ISO (1=Monday ... 5=Friday) — admin-managed via SQL, one row per weekday.
+ */
+export type DailyTaskTemplateRow = {
+  id: string;
+  /** ISO weekday, 1 (Monday) through 5 (Friday). */
+  weekday: number;
+  title: string;
+  description: string;
+  reward: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+/**
+ * One row per user per template per Nigeria-calendar-day, written only via
+ * submit_daily_task(). The unique (user_id, template_id, task_date)
+ * constraint guarantees at most one submission per user per task per day.
+ */
+export type TaskSubmissionRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  /** FK → daily_task_templates.id */
+  template_id: string;
+  /** Nigeria (Africa/Lagos) calendar date this task instance belongs to. */
+  task_date: string;
+  status: string;
+  /** Cloudinary URL of the uploaded proof screenshot. */
+  proof_url: string;
+  /** Amount actually paid for this submission (template.reward at submit time). */
+  reward: number;
+  submitted_at: string;
+};
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export type Database = {
@@ -216,6 +254,20 @@ export type Database = {
         Update: Partial<CheckinSettingsRow>;
         Relationships: [];
       };
+      daily_task_templates: {
+        Row: DailyTaskTemplateRow;
+        Insert: Omit<DailyTaskTemplateRow, "id" | "created_at" | "is_active"> &
+          Partial<Pick<DailyTaskTemplateRow, "id" | "created_at" | "is_active">>;
+        Update: Partial<Omit<DailyTaskTemplateRow, "id">>;
+        Relationships: [];
+      };
+      task_submissions: {
+        Row: TaskSubmissionRow;
+        Insert: Omit<TaskSubmissionRow, "id" | "status" | "submitted_at"> &
+          Partial<Pick<TaskSubmissionRow, "id" | "status" | "submitted_at">>;
+        Update: Partial<Omit<TaskSubmissionRow, "id">>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -226,6 +278,10 @@ export type Database = {
       claim_daily_checkin: {
         Args: Record<string, never>;
         Returns: { streak: number; reward: number; new_wallet_balance: number; check_in_date: string }[];
+      };
+      submit_daily_task: {
+        Args: { p_template_id: string; p_proof_url: string };
+        Returns: { status: string; reward: number; new_wallet_balance: number }[];
       };
     };
     Enums: {
