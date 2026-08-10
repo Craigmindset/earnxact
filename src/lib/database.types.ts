@@ -5,9 +5,9 @@ export type Json = string | number | boolean | null | { [key: string]: Json } | 
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type PlanCategory = "free" | "basic" | "premium" | "vip";
 export type ReferralStatus = "pending" | "active" | "rewarded";
 export type WalletTransactionType = "credit" | "debit" | "withdrawal" | "bonus";
+export type AdRewardType = "cash" | "points";
 
 // ─── Table Row Types ──────────────────────────────────────────────────────────
 
@@ -26,7 +26,8 @@ export interface UserRow {
   account_name: string | null;
   account_number: string | null;
   bank_name: string | null;
-  plan_category: PlanCategory;
+  /** EarnPass task class ID — null means no class registered */
+  task_class_id: string | null;
   referral_code: string;
   /** FK → users.id of the user who invited this user */
   referred_by: string | null;
@@ -98,6 +99,29 @@ export interface LeaderboardRow {
   updated_at: string;
 }
 
+export interface AdRow {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  duration_seconds: number;
+  reward_type: AdRewardType;
+  reward_amount: number;
+  /** VAST tag URL — null until ad provider is connected */
+  vast_tag_url: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdViewRow {
+  id: string;
+  user_id: string;
+  ad_id: string;
+  reward_type: AdRewardType;
+  reward_amount: number;
+  viewed_at: string;
+}
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export interface Database {
@@ -128,13 +152,28 @@ export interface Database {
         Insert: Omit<LeaderboardRow, "updated_at"> & Partial<Pick<LeaderboardRow, "updated_at">>;
         Update: Partial<Omit<LeaderboardRow, "id" | "user_id">>;
       };
+      ads: {
+        Row: AdRow;
+        Insert: Omit<AdRow, "id" | "created_at"> & Partial<Pick<AdRow, "id" | "created_at">>;
+        Update: Partial<Omit<AdRow, "id">>;
+      };
+      ad_views: {
+        Row: AdViewRow;
+        Insert: Omit<AdViewRow, "id" | "viewed_at"> & Partial<Pick<AdViewRow, "id" | "viewed_at">>;
+        Update: never;
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      claim_ad_reward: {
+        Args: { p_ad_id: string };
+        Returns: Json;
+      };
+    };
     Enums: {
-      plan_category: PlanCategory;
       referral_status: ReferralStatus;
       wallet_transaction_type: WalletTransactionType;
+      ad_reward_type: AdRewardType;
     };
   };
 }
