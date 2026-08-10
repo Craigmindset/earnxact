@@ -13,6 +13,7 @@ import {
   MdCameraAlt,
   MdCheck,
   MdClose,
+  MdHourglassEmpty,
   MdLock,
   MdUploadFile
 } from "react-icons/md";
@@ -90,6 +91,7 @@ export default function TasksPage() {
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   const [membershipPlanName, setMembershipPlanName] = useState<string | null>(null);
+  const [membershipPlanId, setMembershipPlanId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<DailyTaskTemplateRow[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, TaskSubmissionRow>>({});
   const [allSubmissionDates, setAllSubmissionDates] = useState<string[]>([]);
@@ -100,6 +102,11 @@ export default function TasksPage() {
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [calendarOpen, setCalendarOpen] = useState(false);
 
+  // Set by the submissions-loading effect below so handleSubmit can force an
+  // immediate refetch after a successful submit, rather than relying solely
+  // on the Realtime subscription (which may lag or be misconfigured).
+  const refreshSubmissionsRef = useRef<() => Promise<void>>(async () => {});
+
   // Tick every second - drives the current time display and the 24h
   // countdown on today's card.
   useEffect(() => {
@@ -107,8 +114,14 @@ export default function TasksPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // Load the task catalog once.
+  // Load the task catalog for the user's *current* membership plan -
+  // re-runs whenever membershipPlanId changes (e.g. right after an upgrade
+  // is picked up by the user_profile realtime listener below), so the card
+  // list always reflects the plan the user is on right now, never a stale
+  // one from an earlier plan.
   useEffect(() => {
+    if (!membershipPlanId) return;
+    const planId = membershipPlanId;
     let cancelled = false;
 
     async function loadTemplates() {
@@ -117,6 +130,7 @@ export default function TasksPage() {
         .from("daily_task_templates")
         .select("*")
         .eq("is_active", true)
+        .eq("membership_plan_id", planId)
         .order("weekday", { ascending: true });
 
       if (!cancelled) {
@@ -128,7 +142,7 @@ export default function TasksPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [membershipPlanId]);
 
   // Load this user's membership plan + submission history once we know
   // who's signed in, then subscribe to realtime updates on task_submissions
@@ -140,25 +154,9 @@ export default function TasksPage() {
     let cancelled = false;
     const supabase = createClient();
 
-    async function loadUserData() {
-      const [{ data: profile }, { data: subs }] = await Promise.all([
-        supabase
-          .from("user_profile")
-          .select("membership_plan_id, membership_plans(name)")
-          .eq("user_id", uid)
-          .maybeSingle(),
-        supabase
-          .from("task_submissions")
-          .select("*")
-          .eq("user_id", uid)
-      ]);
-
+    async function loadSubmissions() {
+      const { data: subs } = await supabase.from("task_submissions").select("*").eq("user_id", uid);
       if (cancelled) return;
-
-      const planRelation = (profile as { membership_plans?: { name: string } | { name: string }[] | null } | null)
-        ?.membership_plans;
-      const planName = Array.isArray(planRelation) ? planRelation[0]?.name : planRelation?.name;
-      setMembershipPlanName(planName ?? null);
 
       const rows = subs ?? [];
       const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
@@ -169,10 +167,38 @@ export default function TasksPage() {
         }
       }
       setSubmissions(todayMap);
-      setAllSubmissionDates(rows.map((row) => row.task_date));
+      setAllSubmissionDates(rows.filter((row) => row.task_verified).map((row) => row.task_date));
+    }
+
+    async function loadUserData() {
+      const [{ data: profile }] = await Promise.all([
+        supabase
+          .from("user_profile")
+          .select("membership_plan_id, membership_plans(name)")
+          .eq("user_id", uid)
+          .maybeSingle(),
+        loadSubmissions()
+      ]);
+
+      if (cancelled) return;
+
+      const planRelation = (profile as { membership_plans?: { name: string } | { name: string }[] | null } | null)
+        ?.membership_plans;
+      const planName = Array.isArray(planRelation) ? planRelation[0]?.name : planRelation?.name;
+      setMembershipPlanName(planName ?? null);
+      setMembershipPlanId(profile?.membership_plan_id ?? null);
     }
 
     loadUserData();
+    refreshSubmissionsRef.current = loadSubmissions;
+
+    // Don't rely solely on the Realtime subscriptions below to eventually
+    // deliver an update - also poll on a short interval as an "underlay"
+    // safety net, so an admin's task_verified change (or a plan upgrade)
+    // shows up within seconds even if a websocket event is missed/delayed.
+    const pollTimer = setInterval(() => {
+      refreshSubmissionsRef.current();
+    }, 15000);
 
     const channel = supabase
       .channel(`task_submissions_${userId}`)
@@ -185,13 +211,42 @@ export default function TasksPage() {
           if (row.task_date === todayStr) {
             setSubmissions((prev) => ({ ...prev, [row.template_id]: row }));
           }
-          setAllSubmissionDates((prev) => [...prev, row.task_date]);
+          if (row.task_verified) {
+            setAllSubmissionDates((prev) => [...prev, row.task_date]);
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "task_submissions", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          // Fired when an admin verifies a submission (task_verified flips to
+          // true and the reward gets credited) - flip the card green live.
+          const row = payload.new as TaskSubmissionRow;
+          const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
+          if (row.task_date === todayStr) {
+            setSubmissions((prev) => ({ ...prev, [row.template_id]: row }));
+          }
+          if (row.task_verified) {
+            setAllSubmissionDates((prev) => (prev.includes(row.task_date) ? prev : [...prev, row.task_date]));
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "user_profile", filter: `user_id=eq.${userId}` },
+        () => {
+          // Fired when the user's membership_plan_id changes (e.g. an
+          // upgrade) - refetch (with the plan-name join) so the task list
+          // swaps to the new plan's tasks live, no page refresh needed.
+          loadUserData();
         }
       )
       .subscribe();
 
     return () => {
       cancelled = true;
+      clearInterval(pollTimer);
       supabase.removeChannel(channel);
     };
   }, [userId]);
@@ -219,6 +274,11 @@ export default function TasksPage() {
   }
 
   async function handleSubmit(templateId: string) {
+    // Guards against double-submission from a fast double-click/tap - the
+    // button is also disabled below while uploadingId is set, but this stops
+    // a second call from ever starting even if that render hasn't landed yet.
+    if (uploadingId) return;
+
     const file = pendingFiles[templateId];
     if (!file) {
       setSubmitError("Please choose a proof screenshot first.");
@@ -245,6 +305,11 @@ export default function TasksPage() {
         delete next[templateId];
         return next;
       });
+
+      // Don't rely solely on the Realtime subscription to flip the card to
+      // "completed" - refetch immediately so the button reliably disappears
+      // and a duplicate submit can't be attempted.
+      await refreshSubmissionsRef.current();
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Failed to submit task");
     } finally {
@@ -354,7 +419,7 @@ export default function TasksPage() {
               </button>
             </div>
             <p className="mt-1 text-sm text-white/50">
-              Green days mean a task was completed. Only Monday - Friday have active tasks.
+              Green days mean a task was verified and paid. Only Monday - Friday have active tasks.
             </p>
 
             <div
@@ -394,8 +459,11 @@ export default function TasksPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         {templates.map((template) => {
           const isToday = template.weekday === clock.isoWeekday;
-          const completed = Boolean(submissions[template.id]);
-          const expired = isToday && !completed && clock.msUntilMidnight <= 0;
+          const submission = submissions[template.id];
+          const hasSubmission = Boolean(submission);
+          const verified = Boolean(submission?.task_verified);
+          const pending = hasSubmission && !verified;
+          const expired = isToday && !hasSubmission && clock.msUntilMidnight <= 0;
           const dayLabel = WEEKDAY_LABELS[template.weekday - 1];
 
           return (
@@ -423,14 +491,22 @@ export default function TasksPage() {
 
                 <div
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border-2 ${
-                    completed
+                    verified
                       ? "border-green-500 bg-green-500/20 text-green-500"
-                      : expired
-                        ? "border-red-500 bg-red-500/20 text-red-500"
-                        : "border-white/20 text-white/30"
+                      : pending
+                        ? "border-amber-500 bg-amber-500/20 text-amber-500"
+                        : expired
+                          ? "border-red-500 bg-red-500/20 text-red-500"
+                          : "border-white/20 text-white/30"
                   }`}
                 >
-                  {completed ? <MdCheck className="text-lg" /> : expired ? <MdClose className="text-lg" /> : null}
+                  {verified ? (
+                    <MdCheck className="text-lg" />
+                  ) : pending ? (
+                    <MdHourglassEmpty className="text-base" />
+                  ) : expired ? (
+                    <MdClose className="text-lg" />
+                  ) : null}
                 </div>
               </div>
 
@@ -449,9 +525,13 @@ export default function TasksPage() {
                     {Number(template.reward).toFixed(2)}
                   </div>
 
-                  {completed ? (
+                  {verified ? (
                     <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs font-medium text-green-400">
                       Task completed - reward credited.
+                    </div>
+                  ) : pending ? (
+                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-400">
+                      Pending review - your reward is credited once this submission is verified.
                     </div>
                   ) : expired ? (
                     <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400">

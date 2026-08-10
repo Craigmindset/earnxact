@@ -1,9 +1,27 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MdBolt, MdFlag, MdStars } from "react-icons/md";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
+import { createClient } from "@/lib/supabase/client";
+import { useUserProfile } from "@/hooks/useUserProfile";
+import { formatCurrency } from "@/lib/currency";
+
+// Backend integration point:
+// - Missions with a `missionId` below are backed by real data:
+//   get_mission_status() computes live progress from public.offerwall_transactions
+//   (written by provider postback routes, e.g. /api/postbacks/cpx), and
+//   claim_mission() re-verifies the goal server-side before crediting the
+//   reward - see supabase/migrations/0001_init.sql. Goal thresholds/rewards
+//   are admin-managed in mission_catalog via SQL, not in this file.
+// - Tasks / Watch Ads / Giveaways missions stay static placeholders for now
+//   (their own backends aren't wired to mission progress yet).
 
 type Tag = { label: string; tone: "brown" | "dark" };
+
+type MissionGoalFormat = "currency" | "count";
 
 type MissionCardData = {
   index: string;
@@ -13,27 +31,38 @@ type MissionCardData = {
   reward: number;
   actionLabel: string;
   actionHref?: string;
+  /** Present only for missions backed by get_mission_status()/claim_mission(). */
+  missionId?: string;
+  goalFormat?: MissionGoalFormat;
 };
 
-// Backend integration point:
-// - Replace with the authenticated user's real daily mission progress
-//   from your API (goals, completion state, claim eligibility).
+type MissionStatus = {
+  progress: number;
+  goal_target: number;
+  reward: number;
+  completed: boolean;
+  claimed: boolean;
+};
+
 const DAILY_MISSIONS: MissionCardData[] = [
   {
     index: "01",
     tags: [
-      { label: "TIMEWALL", tone: "brown" },
+      { label: "CPX", tone: "brown" },
       { label: "TODAY", tone: "dark" }
     ],
-    title: "$2+ credited on TimeWall today",
+    title: `${formatCurrency(2)}+ credited on CPX today`,
     description: (
       <>
-        Reach <strong className="font-semibold text-white">$2.00+</strong> in
-        TimeWall credits before the UTC day rolls.
+        Reach <strong className="font-semibold text-white">{formatCurrency(2)}+</strong>{" "}
+        in CPX Research credits before the UTC day rolls.
       </>
     ),
     reward: 20,
-    actionLabel: "Open TimeWall"
+    actionLabel: "Open CPX",
+    actionHref: "/dashboard/watch-ads",
+    missionId: "cpx_two_dollars_daily",
+    goalFormat: "currency"
   },
   {
     index: "02",
@@ -46,11 +75,14 @@ const DAILY_MISSIONS: MissionCardData[] = [
       <>
         Get credited from{" "}
         <strong className="font-semibold text-white">two different</strong>{" "}
-        offer-wall sources (e.g. TimeWall, AdGem, CPX) the same UTC day.
+        offer-wall sources (e.g. CPX, TimeWall, AdGem) the same UTC day.
       </>
     ),
     reward: 25,
-    actionLabel: "Offerwall hub"
+    actionLabel: "Offerwall hub",
+    actionHref: "/dashboard/watch-ads",
+    missionId: "walls_two_providers_daily",
+    goalFormat: "count"
   },
   {
     index: "03",
@@ -89,9 +121,6 @@ const DAILY_MISSIONS: MissionCardData[] = [
   }
 ];
 
-// Backend integration point:
-// - Replace with the authenticated user's real weekly mission progress
-//   from your API (goals, completion state, claim eligibility).
 const WEEKLY_MISSIONS: MissionCardData[] = [
   {
     index: "01",
@@ -117,31 +146,37 @@ const WEEKLY_MISSIONS: MissionCardData[] = [
       { label: "WALLS", tone: "brown" },
       { label: "MON–SUN UTC", tone: "dark" }
     ],
-    title: "$15+ from walls this UTC week",
+    title: `${formatCurrency(15)}+ from walls this UTC week`,
     description: (
       <>
-        <strong className="font-semibold text-white">$15.00+</strong>{" "}
+        <strong className="font-semibold text-white">{formatCurrency(15)}+</strong>{" "}
         combined from offer-wall credits Monday–Sunday UTC.
       </>
     ),
     reward: 100,
-    actionLabel: "Offerwall hub"
+    actionLabel: "Offerwall hub",
+    actionHref: "/dashboard/watch-ads",
+    missionId: "walls_total_amount_weekly",
+    goalFormat: "currency"
   },
   {
     index: "03",
     tags: [
-      { label: "TIMEWALL", tone: "brown" },
+      { label: "CPX", tone: "brown" },
       { label: "MON–SUN UTC", tone: "dark" }
     ],
-    title: "$5+ credited on TimeWall this week",
+    title: `${formatCurrency(5)}+ credited on CPX this week`,
     description: (
       <>
-        Reach <strong className="font-semibold text-white">$5.00+</strong> in
-        TimeWall credits Monday–Sunday UTC.
+        Reach <strong className="font-semibold text-white">{formatCurrency(5)}+</strong> in
+        CPX Research credits Monday–Sunday UTC.
       </>
     ),
     reward: 15,
-    actionLabel: "Open TimeWall"
+    actionLabel: "Open CPX",
+    actionHref: "/dashboard/watch-ads",
+    missionId: "cpx_five_dollars_weekly",
+    goalFormat: "currency"
   },
   {
     index: "04",
@@ -176,7 +211,94 @@ function MissionTag({ tag }: { tag: Tag }) {
   );
 }
 
-function MissionCard({ mission }: { mission: MissionCardData }) {
+function formatGoalProgress(status: MissionStatus, format: MissionGoalFormat) {
+  if (format === "currency") {
+    return `${formatCurrency(status.progress)} / ${formatCurrency(status.goal_target)}`;
+  }
+  return `${status.progress} / ${status.goal_target} walls`;
+}
+
+function MissionCard({
+  mission,
+  status,
+  claiming,
+  onClaim
+}: {
+  mission: MissionCardData;
+  status?: MissionStatus;
+  claiming: boolean;
+  onClaim: (missionId: string) => void;
+}) {
+  const reward = status?.reward ?? mission.reward;
+
+  let footerNote: ReactNode = "In progress - complete the goal to unlock a claim.";
+  let actionNode: ReactNode;
+
+  if (mission.missionId) {
+    const missionId = mission.missionId;
+    if (!status) {
+      footerNote = "Loading progress\u2026";
+      actionNode = (
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/40 sm:shrink-0"
+        >
+          Loading…
+        </button>
+      );
+    } else if (status.claimed) {
+      footerNote = "Claimed - this mission resets next window.";
+      actionNode = (
+        <button
+          type="button"
+          disabled
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/40 sm:shrink-0"
+        >
+          Claimed
+        </button>
+      );
+    } else if (status.completed) {
+      footerNote = `Goal reached: ${formatGoalProgress(status, mission.goalFormat ?? "currency")}`;
+      actionNode = (
+        <button
+          type="button"
+          disabled={claiming}
+          onClick={() => onClaim(missionId)}
+          className="inline-flex items-center justify-center rounded-lg bg-[var(--brand-gold)] px-4 py-2 text-xs font-semibold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 sm:shrink-0"
+        >
+          {claiming ? "Claiming\u2026" : "Claim reward"}
+        </button>
+      );
+    } else {
+      footerNote = `Progress: ${formatGoalProgress(status, mission.goalFormat ?? "currency")}`;
+      actionNode = mission.actionHref ? (
+        <Link
+          href={mission.actionHref}
+          className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:shrink-0"
+        >
+          {mission.actionLabel}
+        </Link>
+      ) : undefined;
+    }
+  } else {
+    actionNode = mission.actionHref ? (
+      <Link
+        href={mission.actionHref}
+        className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:shrink-0"
+      >
+        {mission.actionLabel}
+      </Link>
+    ) : (
+      <button
+        type="button"
+        className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:shrink-0"
+      >
+        {mission.actionLabel}
+      </button>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-4 md:p-5">
       <div className="flex items-center justify-between gap-3">
@@ -202,26 +324,12 @@ function MissionCard({ mission }: { mission: MissionCardData }) {
       <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-xs text-white/50">
           <span className="inline-flex items-center gap-1 text-sm font-semibold text-[var(--brand-gold)]">
-            <MdStars className="text-base" />+{mission.reward}
+            <MdStars className="text-base" />+{reward}
           </span>
-          In progress - complete the goal to unlock a claim.
+          {footerNote}
         </div>
 
-        {mission.actionHref ? (
-          <Link
-            href={mission.actionHref}
-            className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:shrink-0"
-          >
-            {mission.actionLabel}
-          </Link>
-        ) : (
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 sm:shrink-0"
-          >
-            {mission.actionLabel}
-          </button>
-        )}
+        {actionNode}
       </div>
     </div>
   );
@@ -229,10 +337,16 @@ function MissionCard({ mission }: { mission: MissionCardData }) {
 
 function MissionTimeline({
   missions,
-  lineColor
+  lineColor,
+  missionStatus,
+  claimingId,
+  onClaim
 }: {
   missions: MissionCardData[];
   lineColor: string;
+  missionStatus: Record<string, MissionStatus>;
+  claimingId: string | null;
+  onClaim: (missionId: string) => void;
 }) {
   return (
     <div className="relative">
@@ -247,7 +361,12 @@ function MissionTimeline({
                 "border-"
               )}`}
             />
-            <MissionCard mission={mission} />
+            <MissionCard
+              mission={mission}
+              status={mission.missionId ? missionStatus[mission.missionId] : undefined}
+              claiming={claimingId === mission.missionId}
+              onClaim={onClaim}
+            />
           </div>
         ))}
       </div>
@@ -257,6 +376,84 @@ function MissionTimeline({
 
 export default function MissionsPage() {
   const activeTaskClass = getCurrentTaskClass();
+  const { userId } = useUserProfile();
+
+  const [missionStatus, setMissionStatus] = useState<Record<string, MissionStatus>>({});
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const uid = userId;
+    let cancelled = false;
+    const supabase = createClient();
+
+    async function loadMissionStatus() {
+      const { data } = await supabase.rpc("get_mission_status");
+      if (cancelled || !data) return;
+
+      const next: Record<string, MissionStatus> = {};
+      for (const row of data) {
+        next[row.mission_id] = {
+          progress: row.progress,
+          goal_target: row.goal_target,
+          reward: row.reward,
+          completed: row.completed,
+          claimed: row.claimed
+        };
+      }
+      setMissionStatus(next);
+    }
+
+    loadMissionStatus();
+
+    // Any new credited/reversed offerwall transaction or claimed mission for
+    // this user can change progress/claim state - just re-run the RPC rather
+    // than re-deriving the same aggregation logic on the client.
+    const channel = supabase
+      .channel(`mission_progress_${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "offerwall_transactions", filter: `user_id=eq.${uid}` },
+        () => loadMissionStatus()
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "users_mission", filter: `user_id=eq.${uid}` },
+        () => loadMissionStatus()
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  async function handleClaim(missionId: string) {
+    setClaimingId(missionId);
+    setClaimError(null);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("claim_mission", { p_mission_id: missionId });
+      if (error) throw error;
+
+      const result = data?.[0];
+      setMissionStatus((prev) => ({
+        ...prev,
+        [missionId]: {
+          ...prev[missionId],
+          claimed: true,
+          reward: result?.reward ?? prev[missionId]?.reward ?? 0
+        }
+      }));
+    } catch (err) {
+      setClaimError(err instanceof Error ? err.message : "Failed to claim this mission.");
+    } finally {
+      setClaimingId(null);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -274,6 +471,12 @@ export default function MissionsPage() {
           Meet the goals, increase your earnings, then claim your reward. When
           completed, your daily goals will be automatically scored.
         </p>
+
+        {claimError ? (
+          <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {claimError}
+          </p>
+        ) : null}
       </div>
 
       <section id="daily-missions" className="space-y-4">
@@ -287,7 +490,13 @@ export default function MissionsPage() {
           </div>
         </div>
 
-        <MissionTimeline missions={DAILY_MISSIONS} lineColor="bg-orange-500/40" />
+        <MissionTimeline
+          missions={DAILY_MISSIONS}
+          lineColor="bg-orange-500/40"
+          missionStatus={missionStatus}
+          claimingId={claimingId}
+          onClaim={handleClaim}
+        />
       </section>
 
       <section id="weekly-missions" className="space-y-4">
@@ -301,7 +510,13 @@ export default function MissionsPage() {
           </div>
         </div>
 
-        <MissionTimeline missions={WEEKLY_MISSIONS} lineColor="bg-violet-500/40" />
+        <MissionTimeline
+          missions={WEEKLY_MISSIONS}
+          lineColor="bg-violet-500/40"
+          missionStatus={missionStatus}
+          claimingId={claimingId}
+          onClaim={handleClaim}
+        />
       </section>
 
       <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/50">

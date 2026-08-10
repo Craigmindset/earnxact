@@ -70,8 +70,44 @@ export type UserMissionRow = {
   status: MissionStatus;
   progress: number;
   reward: number;
+  /** Scopes a claim to the exact daily/weekly window it was earned in, e.g. '2026-08-10' or '2026-W32'. */
+  period_key: string | null;
   completed_at: string | null;
   created_at: string;
+};
+
+/**
+ * Raw ledger of every reward-wall payout a user has been credited for,
+ * written only by each provider's postback route (e.g. /api/postbacks/cpx).
+ * The unique (provider, external_trans_id) constraint makes postbacks
+ * idempotent - a duplicate delivery of the same transaction is a no-op.
+ */
+export type OfferwallTransactionRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  /** e.g. 'cpx' — add more providers (TimeWall, AdGem…) without a schema change. */
+  provider: string;
+  /** The transaction/click id supplied by the provider's postback. */
+  external_trans_id: string;
+  amount: number;
+  status: "credited" | "reversed";
+  credited_at: string;
+};
+
+/**
+ * Admin-managed catalog of the missions on /dashboard/missions that are
+ * backed by real offerwall data. get_mission_status()/claim_mission() read
+ * this table server-side so a client can never spoof its reward or goal.
+ */
+export type MissionCatalogRow = {
+  mission_id: string;
+  period: MissionPeriod;
+  goal_type: "provider_amount" | "distinct_providers" | "wall_total_amount";
+  goal_provider: string | null;
+  goal_target: number;
+  reward: number;
+  is_active: boolean;
 };
 
 export type WatchVideoRow = {
@@ -163,6 +199,10 @@ export type DailyTaskTemplateRow = {
   description: string;
   reward: number;
   is_active: boolean;
+  /** FK → membership_plans.id — which plan sees this task (categorized per plan). */
+  membership_plan_id: string;
+  /** Denormalized copy of membership_plans.name, kept in sync via ON UPDATE CASCADE. */
+  membership_name: string;
   created_at: string;
 };
 
@@ -184,6 +224,9 @@ export type TaskSubmissionRow = {
   proof_url: string;
   /** Amount actually paid for this submission (template.reward at submit time). */
   reward: number;
+  /** Set only by verify_task_submission() (admin, via SQL) - the reward is
+   *  credited at that point, not at submission time. */
+  task_verified: boolean;
   submitted_at: string;
 };
 
@@ -215,9 +258,22 @@ export type Database = {
       };
       users_mission: {
         Row: UserMissionRow;
-        Insert: Omit<UserMissionRow, "id" | "created_at"> &
-          Partial<Pick<UserMissionRow, "id" | "created_at">>;
+        Insert: Omit<UserMissionRow, "id" | "created_at" | "period_key"> &
+          Partial<Pick<UserMissionRow, "id" | "created_at" | "period_key">>;
         Update: Partial<Omit<UserMissionRow, "id">>;
+        Relationships: [];
+      };
+      offerwall_transactions: {
+        Row: OfferwallTransactionRow;
+        Insert: Omit<OfferwallTransactionRow, "id" | "credited_at" | "status"> &
+          Partial<Pick<OfferwallTransactionRow, "id" | "credited_at" | "status">>;
+        Update: Partial<Omit<OfferwallTransactionRow, "id">>;
+        Relationships: [];
+      };
+      mission_catalog: {
+        Row: MissionCatalogRow;
+        Insert: Omit<MissionCatalogRow, "is_active"> & Partial<Pick<MissionCatalogRow, "is_active">>;
+        Update: Partial<MissionCatalogRow>;
         Relationships: [];
       };
       watch_videos: {
@@ -263,8 +319,8 @@ export type Database = {
       };
       task_submissions: {
         Row: TaskSubmissionRow;
-        Insert: Omit<TaskSubmissionRow, "id" | "status" | "submitted_at"> &
-          Partial<Pick<TaskSubmissionRow, "id" | "status" | "submitted_at">>;
+        Insert: Omit<TaskSubmissionRow, "id" | "status" | "submitted_at" | "task_verified"> &
+          Partial<Pick<TaskSubmissionRow, "id" | "status" | "submitted_at" | "task_verified">>;
         Update: Partial<Omit<TaskSubmissionRow, "id">>;
         Relationships: [];
       };
@@ -282,6 +338,30 @@ export type Database = {
       submit_daily_task: {
         Args: { p_template_id: string; p_proof_url: string };
         Returns: { status: string; reward: number; new_wallet_balance: number }[];
+      };
+      verify_task_submission: {
+        Args: { p_submission_id: string };
+        Returns: { status: string; reward: number; new_wallet_balance: number }[];
+      };
+      get_mission_status: {
+        Args: Record<string, never>;
+        Returns: {
+          mission_id: string;
+          period: string;
+          progress: number;
+          goal_target: number;
+          reward: number;
+          completed: boolean;
+          claimed: boolean;
+        }[];
+      };
+      claim_mission: {
+        Args: { p_mission_id: string };
+        Returns: { reward: number; new_wallet_balance: number }[];
+      };
+      credit_offerwall_transaction: {
+        Args: { p_user_id: string; p_amount: number; p_reference: string; p_description: string };
+        Returns: number;
       };
     };
     Enums: {
