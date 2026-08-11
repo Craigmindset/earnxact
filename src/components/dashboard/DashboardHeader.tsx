@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { MdNotificationsNone, MdSupportAgent, MdTrendingUp } from "react-icons/md";
 import { FiMenu } from "react-icons/fi";
-import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import LogoutButton from "@/components/dashboard/LogoutButton";
 import ProfileMenu from "@/components/dashboard/ProfileMenu";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
@@ -17,9 +16,15 @@ type DashboardHeaderProps = {
 export default function DashboardHeader({
   onToggleMobileSidebar
 }: DashboardHeaderProps) {
-  const { walletBalance, loading } = useUserProfile();
+  const { walletBalance, membershipPlanName, loading } = useUserProfile();
   const walletBalanceDisplay = `${CURRENCY_SYMBOL}${loading ? "0.00" : walletBalance.toFixed(2)}`;
-  const activeTaskClass = getCurrentTaskClass();
+  // Every user is assigned a membership_plan_id at signup (defaults to the
+  // Free plan - see handle_new_user() in supabase/migrations/0001_init.sql),
+  // so drive the badge/Upgrade-link off the actual plan itself rather than
+  // the coarser 3-value account_type - a user on Task class1 or Task Class2
+  // is still "standard" account_type but has already left the Free plan.
+  const planNameLower = membershipPlanName?.trim().toLowerCase() ?? null;
+  const isOnFreePlan = planNameLower === null || planNameLower === "free";
 
   return (
     <header className="sticky top-0 z-50 flex h-16 items-center gap-3 border-b border-white/10 bg-[var(--brand-black)]/90 px-4 backdrop-blur supports-[backdrop-filter]:bg-[color:rgba(5,5,5,0.8)] md:px-6">
@@ -48,15 +53,11 @@ export default function DashboardHeader({
       </Link>
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
-        {activeTaskClass ? (
-          <span className="hidden rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 sm:inline-flex">
-            {activeTaskClass.name}
+        <span className="hidden items-center gap-2 sm:inline-flex">
+          <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80">
+            {loading ? "Earn More" : membershipPlanName ?? "Free"}
           </span>
-        ) : (
-          <span className="hidden items-center gap-2 sm:inline-flex">
-            <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80">
-              Earn More
-            </span>
+          {isOnFreePlan && (
             <Link
               href="/dashboard/earnpass"
               className="inline-flex items-center gap-1 rounded-lg bg-[var(--brand-smoky-white)] px-3 py-2 text-xs font-semibold text-black transition hover:opacity-90"
@@ -64,8 +65,8 @@ export default function DashboardHeader({
               <MdTrendingUp className="text-sm" />
               Upgrade
             </Link>
-          </span>
-        )}
+          )}
+        </span>
 
         <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-[var(--brand-gold)]">
           {walletBalanceDisplay}

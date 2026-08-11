@@ -284,7 +284,15 @@ export type Database = {
         Insert: Omit<UserProfileRow, "created_at" | "updated_at"> &
           Partial<Pick<UserProfileRow, "created_at" | "updated_at">>;
         Update: Partial<Omit<UserProfileRow, "user_id">>;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "user_profile_membership_plan_id_fkey";
+            columns: ["membership_plan_id"];
+            isOneToOne: false;
+            referencedRelation: "membership_plans";
+            referencedColumns: ["id"];
+          }
+        ];
       };
       membership_plans: {
         Row: MembershipPlanRow;
@@ -442,6 +450,15 @@ export type Database = {
           p_pin: string;
         };
         Returns: { request_id: string; new_wallet_balance: number }[];
+      };
+      apply_membership_payment: {
+        Args: { p_plan_id: string; p_reference: string; p_amount: number };
+        Returns: {
+          new_wallet_balance: number;
+          bonus_awarded: number;
+          plan_name: string;
+          account_type: AccountType;
+        }[];
       };
     };
     Enums: {

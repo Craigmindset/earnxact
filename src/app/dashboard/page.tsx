@@ -10,7 +10,6 @@ import {
   MdOndemandVideo,
   MdTrendingUp
 } from "react-icons/md";
-import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import WalletBalanceStat from "@/components/dashboard/WalletBalanceStat";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { createClient } from "@/lib/supabase/server";
@@ -52,22 +51,31 @@ export default async function DashboardPage() {
   // Backend/auth integration point:
   // - Protect this route with middleware or server-side auth checks.
   // - Fetch the authenticated user's wallet balance, stats and activity here.
-  const activeTaskClass = getCurrentTaskClass();
-
   const supabase = await createClient();
   const {
     data: { user }
   } = await supabase.auth.getUser();
 
   let firstName: string | null = null;
+  let membershipPlanName: string | null = null;
   if (user) {
     const { data: profile } = await supabase
       .from("user_profile")
-      .select("first_name")
+      .select("first_name, membership_plans(name)")
       .eq("user_id", user.id)
       .single();
     firstName = profile?.first_name ?? null;
+    const plan = profile?.membership_plans as { name: string } | { name: string }[] | null;
+    membershipPlanName = Array.isArray(plan) ? plan[0]?.name ?? null : plan?.name ?? null;
   }
+
+  // Every user is assigned a membership_plan_id at signup (defaults to the
+  // Free plan - see handle_new_user() in supabase/migrations/0001_init.sql),
+  // so drive this off the actual plan itself rather than the coarser
+  // 3-value account_type - a user on Task class1 or Task Class2 is still
+  // "standard" account_type but has already left the Free plan.
+  const planNameLower = membershipPlanName?.trim().toLowerCase() ?? null;
+  const isOnFreePlan = planNameLower === null || planNameLower === "free";
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -103,9 +111,9 @@ export default async function DashboardPage() {
             Task Class
           </div>
           <div className="mt-1 text-lg font-semibold text-white">
-            {activeTaskClass
-              ? `You are currently on "${activeTaskClass.name}"`
-              : "Earn More"}
+            {isOnFreePlan
+              ? "Earn More"
+              : `You are currently on "${membershipPlanName}"`}
           </div>
         </div>
         <Link

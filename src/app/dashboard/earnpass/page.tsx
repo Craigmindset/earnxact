@@ -108,11 +108,11 @@ export default function EarnPassPage() {
     setPayMessage(null);
   }
 
-  // Backend integration point:
-  // - Wire this into the Paystack initialize/verify flow
-  //   (src/app/api/payments/initialize, src/app/api/payments/verify) to
-  //   charge selectedPlan.amount and, on success, update
-  //   user_profile.membership_plan_id to selectedPlan.id.
+  // Starts a Paystack checkout for selectedPlan (see
+  // src/app/api/payments/initialize) and redirects the browser to
+  // Paystack's hosted payment page. Paystack redirects back to
+  // /dashboard/earnpass/verify, which confirms the payment and applies the
+  // plan via src/app/api/payments/verify.
   async function handlePayNow() {
     if (!selectedPlan || paying) return;
     setPaying(true);
@@ -184,11 +184,12 @@ export default function EarnPassPage() {
             const Icon = iconForPlan(plan.name);
             const isCurrent = plan.id === currentPlanId;
             // Every plan except the default "Free" plan and the starter
-            // "Task Class 1" tier gets the bonus badge - matched by name
+            // "Task class1" tier gets the bonus badge - matched by name
             // (not array position) so it stays correct regardless of how
-            // plans are ordered/priced.
-            const planNameLower = plan.name.trim().toLowerCase();
-            const hasBonus = planNameLower !== "free" && planNameLower !== "task class 1";
+            // plans are ordered/priced. Seeded DB name has no space before
+            // the digit (see supabase/migrations/0002_membership_plans_and_tasks.sql).
+            const planNameLower = plan.name.trim().toLowerCase().replace(/\s+/g, " ");
+            const hasBonus = planNameLower !== "free" && planNameLower !== "task class1";
 
             return (
               <div
