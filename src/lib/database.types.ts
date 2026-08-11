@@ -35,6 +35,14 @@ export type UserProfileRow = {
   user_referral_link: string | null;
   /** FK → membership_plans.id — the user's currently chosen/active plan. */
   membership_plan_id: string | null;
+  /**
+   * bcrypt hash (pgcrypto crypt()) of the user's 4-digit withdrawal PIN, or
+   * null if none set yet. NEVER select this column directly from client
+   * code - check/verify a PIN only via the has_withdrawal_pin() /
+   * set_withdrawal_pin() / reset_withdrawal_pin() / create_withdrawal_request()
+   * RPCs, which are the only things that ever read or write it.
+   */
+  pin_hash: string | null;
   account_type: AccountType;
   created_at: string;
   updated_at: string;
@@ -230,6 +238,42 @@ export type TaskSubmissionRow = {
   submitted_at: string;
 };
 
+/**
+ * Global announcement an admin posts (via SQL) - shown to every signed-in
+ * user on /dashboard/notifications alongside their own personal activity
+ * from transactions. `is_active` lets an admin retire an old broadcast
+ * without deleting it.
+ */
+export type AdminNotificationRow = {
+  id: string;
+  title: string;
+  message: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type WithdrawalStatus = "processing" | "completed" | "paid";
+
+/**
+ * One row per withdrawal a user initiates from /dashboard/wallet, written
+ * only via create_withdrawal_request(). `status` starts at 'processing'
+ * and is moved to 'completed'/'paid' by an admin directly via SQL - there
+ * is no client update path. `wallet_balance` is a snapshot of the balance
+ * *before* this withdrawal's amount was deducted, kept for audit purposes.
+ */
+export type WithdrawalRequestRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  status: WithdrawalStatus;
+  wallet_balance: number;
+  amount_withdrawn: number;
+  bank_name: string;
+  account_name: string;
+  account_number: string;
+  created_at: string;
+};
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export type Database = {
@@ -324,6 +368,20 @@ export type Database = {
         Update: Partial<Omit<TaskSubmissionRow, "id">>;
         Relationships: [];
       };
+      admin_notifications: {
+        Row: AdminNotificationRow;
+        Insert: Omit<AdminNotificationRow, "id" | "created_at" | "is_active"> &
+          Partial<Pick<AdminNotificationRow, "id" | "created_at" | "is_active">>;
+        Update: Partial<Omit<AdminNotificationRow, "id">>;
+        Relationships: [];
+      };
+      withdrawal_requests: {
+        Row: WithdrawalRequestRow;
+        Insert: Omit<WithdrawalRequestRow, "id" | "created_at" | "status"> &
+          Partial<Pick<WithdrawalRequestRow, "id" | "created_at" | "status">>;
+        Update: Partial<Omit<WithdrawalRequestRow, "id">>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -362,6 +420,28 @@ export type Database = {
       credit_offerwall_transaction: {
         Args: { p_user_id: string; p_amount: number; p_reference: string; p_description: string };
         Returns: number;
+      };
+      has_withdrawal_pin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      set_withdrawal_pin: {
+        Args: { p_pin: string };
+        Returns: undefined;
+      };
+      reset_withdrawal_pin: {
+        Args: { p_current_pin: string; p_new_pin: string };
+        Returns: undefined;
+      };
+      create_withdrawal_request: {
+        Args: {
+          p_amount: number;
+          p_bank_name: string;
+          p_account_name: string;
+          p_account_number: string;
+          p_pin: string;
+        };
+        Returns: { request_id: string; new_wallet_balance: number }[];
       };
     };
     Enums: {

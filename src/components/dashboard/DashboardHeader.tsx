@@ -79,14 +79,14 @@ export default function DashboardHeader({
           <MdSupportAgent className="text-lg" />
         </Link>
 
-        <button
-          type="button"
+        <Link
+          href="/dashboard/notifications"
           aria-label="Notifications"
           className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/10 hover:text-white"
         >
           <MdNotificationsNone className="text-lg" />
           <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--brand-gold)]" />
-        </button>
+        </Link>
 
         <ProfileMenu />
 

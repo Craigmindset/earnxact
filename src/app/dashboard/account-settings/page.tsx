@@ -1,38 +1,29 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   MdAccountBalance,
   MdArrowBack,
+  MdAutorenew,
   MdCheckCircle,
   MdChevronRight,
   MdErrorOutline,
-  MdGroup,
   MdHealthAndSafety,
   MdLock,
-  MdPaid,
   MdPerson,
   MdPhotoCamera,
   MdPrivacyTip,
   MdShield,
   MdSupportAgent,
-  MdTrendingUp,
-  MdAccountBalanceWallet
+  MdTrendingUp
 } from "react-icons/md";
 import { getCurrentTaskClass } from "@/components/dashboard/task-class-data";
 import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
-import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { createClient } from "@/lib/supabase/client";
 import { useUserProfile } from "@/hooks/useUserProfile";
-
-// Backend integration point:
-// - Replace with the authenticated user's real account summary figures.
-const CURRENT_BALANCE = 0;
-const TOTAL_EARNING = 0;
-const REFERRAL_EARNING = 0;
-const REFERRAL_CLAIMS = 0;
 
 // Backend integration point:
 // - Replace with the authenticated user's real profile completion score.
@@ -47,11 +38,20 @@ const POLICY_LINKS = [
 export default function AccountSettingsPage() {
   const router = useRouter();
   const activeTaskClass = getCurrentTaskClass();
-  const { firstName, avatarUrl, uploadAvatar } = useUserProfile();
+  const { userId, firstName, avatarUrl, uploadAvatar } = useUserProfile();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
+  // Backend integration point:
+  // - null = still loading, true/false once has_withdrawal_pin() resolves.
+  //   Drives whether the form below is "Set Pin" (first time) or
+  //   "Reset Pin" (requires the current PIN to change it).
+  const [hasPin, setHasPin] = useState<boolean | null>(null);
+  const [pinSubmitting, setPinSubmitting] = useState(false);
+
+  const [currentPin, setCurrentPin] = useState(["", "", "", ""]);
+  const currentPinRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [pin, setPin] = useState(["", "", "", ""]);
   const [confirmPin, setConfirmPin] = useState(["", "", "", ""]);
   const pinRefs = useRef<Array<HTMLInputElement | null>>([]);
@@ -67,6 +67,39 @@ export default function AccountSettingsPage() {
 
   const [ticketMessage, setTicketMessage] = useState("");
   const [ticketSuccess, setTicketSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    const supabase = createClient();
+
+    supabase.rpc("has_withdrawal_pin").then(({ data }) => {
+      if (!cancelled) setHasPin(Boolean(data));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  function handleCurrentPinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
+    const digit = event.target.value.replace(/\D/g, "").slice(-1);
+    const nextCurrentPin = [...currentPin];
+    nextCurrentPin[index] = digit;
+    setCurrentPin(nextCurrentPin);
+    setPinMessage(null);
+
+    if (digit && index < 3) {
+      currentPinRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleCurrentPinKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Backspace" && !currentPin[index] && index > 0) {
+      currentPinRefs.current[index - 1]?.focus();
+    }
+  }
 
   function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
     const digit = event.target.value.replace(/\D/g, "").slice(-1);
@@ -104,7 +137,16 @@ export default function AccountSettingsPage() {
     }
   }
 
-  function handleSetPin() {
+  // True as soon as every Confirm PIN box is filled but doesn't match New PIN -
+  // drives the red "don't match" border + inline message below.
+  const pinsMismatch = confirmPin.every(Boolean) && pin.join("") !== confirmPin.join("");
+
+  async function handleSetPin() {
+    if (hasPin && !currentPin.every(Boolean)) {
+      setPinMessage({ type: "error", text: "Please enter your current PIN." });
+      return;
+    }
+
     if (!pin.every(Boolean) || !confirmPin.every(Boolean)) {
       setPinMessage({ type: "error", text: "Please fill in both 4-digit PINs." });
       return;
@@ -115,7 +157,33 @@ export default function AccountSettingsPage() {
       return;
     }
 
-    setPinMessage({ type: "success", text: "Your pin has been successfully created" });
+    setPinSubmitting(true);
+    setPinMessage(null);
+
+    try {
+      const supabase = createClient();
+      const { error } = hasPin
+        ? await supabase.rpc("reset_withdrawal_pin", {
+            p_current_pin: currentPin.join(""),
+            p_new_pin: pin.join("")
+          })
+        : await supabase.rpc("set_withdrawal_pin", { p_pin: pin.join("") });
+
+      if (error) {
+        setPinMessage({ type: "error", text: `PIN update failed: ${error.message}` });
+        return;
+      }
+
+      setCurrentPin(["", "", "", ""]);
+      setPin(["", "", "", ""]);
+      setConfirmPin(["", "", "", ""]);
+      setHasPin(true);
+      setPinMessage({ type: "success", text: hasPin ? "PIN updated successfully." : "PIN set successfully." });
+    } catch {
+      setPinMessage({ type: "error", text: "PIN update failed. Please try again." });
+    } finally {
+      setPinSubmitting(false);
+    }
   }
 
   const isWithdrawalFormValid =
@@ -254,62 +322,44 @@ export default function AccountSettingsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-          <div className="flex items-center gap-2 text-emerald-400">
-            <MdAccountBalanceWallet className="text-xl" />
-            <span className="text-xs font-semibold uppercase tracking-wide">
-              Current Balance
-            </span>
-          </div>
-          <div className="mt-2 text-xl font-semibold text-white">
-            {CURRENCY_SYMBOL}
-            {CURRENT_BALANCE.toLocaleString()}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/10 p-5">
-          <div className="flex items-center gap-2 text-[var(--brand-gold)]">
-            <MdPaid className="text-xl" />
-            <span className="text-xs font-semibold uppercase tracking-wide">
-              Total Earning
-            </span>
-          </div>
-          <div className="mt-2 text-xl font-semibold text-white">
-            {CURRENCY_SYMBOL}
-            {TOTAL_EARNING.toLocaleString()}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-5">
-          <div className="flex items-center gap-2 text-sky-400">
-            <MdGroup className="text-xl" />
-            <span className="text-xs font-semibold uppercase tracking-wide">
-              Referral Earning & Claims
-            </span>
-          </div>
-          <div className="mt-2 text-xl font-semibold text-white">
-            {CURRENCY_SYMBOL}
-            {REFERRAL_EARNING.toLocaleString()}
-          </div>
-          <div className="mt-1 text-xs text-white/50">
-            {REFERRAL_CLAIMS} claims made
-          </div>
-        </div>
-      </div>
-
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5 md:p-6">
         <div className="flex items-center gap-2">
           <MdLock className="text-lg text-[var(--brand-gold)]" />
           <h2 className="text-sm font-semibold uppercase tracking-wide text-white md:text-base">
-            Set Pin
+            {hasPin ? "Reset Pin" : "Set Pin"}
           </h2>
         </div>
         <p className="mt-1 text-xs text-white/50">
-          Create a 4-digit PIN to secure your withdrawals.
+          {hasPin
+            ? "Enter your current PIN and choose a new 4-digit PIN."
+            : "Create a 4-digit PIN to secure your withdrawals."}
         </p>
 
-        <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:gap-10">
+        <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:gap-10">
+          {hasPin && (
+            <div>
+              <label className="text-xs font-medium text-white/60">Current PIN</label>
+              <div className="mt-1.5 flex gap-2">
+                {currentPin.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(element) => {
+                      currentPinRefs.current[index] = element;
+                    }}
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={1}
+                    required
+                    value={digit}
+                    onChange={(event) => handleCurrentPinChange(index, event)}
+                    onKeyDown={(event) => handleCurrentPinKeyDown(index, event)}
+                    className="h-12 w-12 rounded-lg border border-white/10 bg-black/20 text-center text-lg font-semibold text-white outline-none focus:border-[var(--brand-gold)]"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-medium text-white/60">New PIN</label>
             <div className="mt-1.5 flex gap-2">
@@ -348,10 +398,15 @@ export default function AccountSettingsPage() {
                   value={digit}
                   onChange={(event) => handleConfirmPinChange(index, event)}
                   onKeyDown={(event) => handleConfirmPinKeyDown(index, event)}
-                  className="h-12 w-12 rounded-lg border border-white/10 bg-black/20 text-center text-lg font-semibold text-white outline-none focus:border-[var(--brand-gold)]"
+                  className={`h-12 w-12 rounded-lg border bg-black/20 text-center text-lg font-semibold text-white outline-none transition-colors ${
+                    pinsMismatch
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-white/10 focus:border-[var(--brand-gold)]"
+                  }`}
                 />
               ))}
             </div>
+            {pinsMismatch && <p className="mt-1.5 text-xs text-red-400">PINs do not match.</p>}
           </div>
         </div>
 
@@ -375,9 +430,11 @@ export default function AccountSettingsPage() {
         <button
           type="button"
           onClick={handleSetPin}
-          className="mt-4 rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90"
+          disabled={hasPin === null || pinSubmitting}
+          className="mt-4 flex items-center gap-2 rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Submit
+          {pinSubmitting && <MdAutorenew className="animate-spin text-base" />}
+          {pinSubmitting ? "Submitting..." : "Submit"}
         </button>
       </div>
 

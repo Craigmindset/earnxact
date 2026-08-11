@@ -52,7 +52,7 @@ export const CASHOUT_NAV_ITEMS: DashboardNavItem[] = [
   { label: "Leaderboard", href: "/dashboard/leaderboard", icon: MdLeaderboard },
   { label: "Invite & Earn", href: "/dashboard/invite-earn", icon: MdGroupAdd, hot: true },
   // { label: "Cashback", href: "/dashboard/cashback", icon: MdAttachMoney },
-  { label: "Quick Status", href: "/dashboard/quick-status", icon: MdSpeed },
+  // { label: "Quick Status", href: "/dashboard/quick-status", icon: MdSpeed },
   { label: "Support", href: "/dashboard/support", icon: MdSupportAgent }
 ];
 

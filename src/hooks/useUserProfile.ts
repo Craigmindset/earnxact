@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export type UserProfileState = {
@@ -32,6 +33,15 @@ const INITIAL_STATE: UserProfileState = {
  */
 export function useUserProfile() {
   const [state, setState] = useState<UserProfileState>(INITIAL_STATE);
+  // Some pages mount their own useUserProfile() instance (e.g. the wallet
+  // balance stat card on /dashboard) that only exists while that route is
+  // active. If wallet_balance changes while that instance is unmounted
+  // (e.g. a withdrawal initiated from /dashboard/wallet), it can miss the
+  // realtime UPDATE event and show a stale value once the user navigates
+  // back. Re-running refresh() whenever the pathname changes guarantees
+  // every instance re-fetches the current balance on every navigation, so
+  // all pages always agree with the database.
+  const pathname = usePathname();
   // useUserProfile() is called from several components at once (header,
   // profile menu, wallet page, dashboard stat card, ...). Supabase's
   // realtime client reuses/dedupes channels that share the same topic
@@ -76,7 +86,7 @@ export function useUserProfile() {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, pathname]);
 
   // Live updates: whenever user_profile changes (e.g. wallet_balance is
   // credited by a referral claim), push the new values straight into the UI.

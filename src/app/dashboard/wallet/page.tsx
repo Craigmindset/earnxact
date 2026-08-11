@@ -1,21 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import Lottie from "lottie-react";
 import {
   MdAccountBalance,
   MdAccountBalanceWallet,
   MdBolt,
   MdCardGiftcard,
+  MdCheckCircle,
   MdClose,
-  MdInfoOutline
+  MdErrorOutline,
+  MdInfoOutline,
+  MdLock
 } from "react-icons/md";
 import { FaBitcoin, FaPaypal } from "react-icons/fa6";
 import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { formatRelativeTime } from "@/lib/time";
+import { createClient } from "@/lib/supabase/client";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import cryptoAnimation from "../../../../public/images/crypto.json";
 
@@ -41,9 +46,7 @@ const CASHOUT_FEED = [
 ];
 
 export default function WalletPage() {
-  const { walletBalance, loading: loadingWallet } = useUserProfile();
-  const [isPartial, setIsPartial] = useState(false);
-  const [amount, setAmount] = useState("");
+  const { userId, walletBalance, loading: loadingWallet } = useUserProfile();
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodId | null>(null);
   const [activeModal, setActiveModal] = useState<"bank" | "crypto" | "unavailable" | null>(null);
 
@@ -53,10 +56,36 @@ export default function WalletPage() {
   const [pin, setPin] = useState(["", "", "", ""]);
   const pinRefs = useRef<Array<HTMLInputElement | null>>([]);
 
+  // Backend integration point:
+  // - hasPin gates the whole withdraw flow: a user must set a withdrawal PIN
+  //   on /dashboard/account-settings (via set_withdrawal_pin()) before they
+  //   can submit a withdrawal request at all.
+  const [hasPin, setHasPin] = useState<boolean | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    const supabase = createClient();
+
+    supabase.rpc("has_withdrawal_pin").then(({ data }) => {
+      if (!cancelled) setHasPin(Boolean(data));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   function handleWithdrawClick() {
     if (!selectedMethod) return;
 
     if (selectedMethod === "bank") {
+      setSubmitError(null);
+      setSubmitSuccess(false);
       setActiveModal("bank");
     } else if (selectedMethod === "crypto") {
       setActiveModal("crypto");
@@ -66,6 +95,36 @@ export default function WalletPage() {
   }
 
   function closeModal() {
+    setActiveModal(null);
+  }
+
+  async function handleConfirmWithdrawal() {
+    if (!isBankFormValid || submitting) return;
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    const supabase = createClient();
+    const { error } = await supabase.rpc("create_withdrawal_request", {
+      p_amount: walletBalance,
+      p_bank_name: bankName,
+      p_account_name: accountName,
+      p_account_number: accountNumber,
+      p_pin: pin.join("")
+    });
+
+    setSubmitting(false);
+
+    if (error) {
+      setSubmitError(error.message);
+      return;
+    }
+
+    setAccountNumber("");
+    setBankName("");
+    setAccountName("");
+    setPin(["", "", "", ""]);
+    setSubmitSuccess(true);
     setActiveModal(null);
   }
 
@@ -135,51 +194,40 @@ export default function WalletPage() {
               Wallet Account
             </div>
 
-            {isPartial ? (
-              <div className="mt-1 flex items-center gap-1 text-2xl font-semibold text-[var(--brand-gold)]">
-                {CURRENCY_SYMBOL}
-                <input
-                  type="number"
-                  min={0}
-                  max={walletBalance}
-                  autoFocus
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                  placeholder="0.00"
-                  className="w-32 border-b border-[var(--brand-gold)]/50 bg-transparent text-2xl font-semibold text-[var(--brand-gold)] outline-none placeholder:text-[var(--brand-gold)]/40"
-                />
-              </div>
-            ) : (
-              <div className="mt-1 text-2xl font-semibold text-[var(--brand-gold)]">
-                {CURRENCY_SYMBOL}
-                {loadingWallet ? "0.00" : walletBalance.toFixed(2)}
-              </div>
-            )}
+            <div className="mt-1 text-2xl font-semibold text-[var(--brand-gold)]">
+              {CURRENCY_SYMBOL}
+              {loadingWallet ? "0.00" : walletBalance.toFixed(2)}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setIsPartial((value) => !value)}
-              className={`rounded-lg border px-4 py-2.5 text-sm font-semibold transition ${
-                isPartial
-                  ? "border-[var(--brand-gold)] text-[var(--brand-gold)]"
-                  : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-              }`}
-            >
-              Partial Withdrawal
-            </button>
-
-            <button
-              type="button"
               onClick={handleWithdrawClick}
-              disabled={!selectedMethod}
+              disabled={!selectedMethod || !hasPin || walletBalance <= 0}
               className="rounded-lg bg-[var(--brand-smoky-white)] px-5 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
             >
               Withdraw
             </button>
           </div>
         </div>
+
+        {hasPin === false && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-400">
+            <MdLock className="shrink-0 text-sm" />
+            You need to set a withdrawal PIN before you can cash out.{" "}
+            <Link href="/dashboard/account-settings" className="font-semibold underline">
+              Set it now
+            </Link>
+          </div>
+        )}
+
+        {submitSuccess && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-400">
+            <MdCheckCircle className="shrink-0 text-sm" />
+            Your withdrawal request has been submitted and is now processing.
+          </div>
+        )}
       </div>
 
       <div>
@@ -347,13 +395,20 @@ export default function WalletPage() {
                 Payout or Confirmation.
               </div>
 
+              {submitError && (
+                <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-xs text-rose-400">
+                  <MdErrorOutline className="shrink-0 text-sm" />
+                  {submitError}
+                </div>
+              )}
+
               <button
                 type="button"
-                disabled={!isBankFormValid}
-                onClick={closeModal}
+                disabled={!isBankFormValid || submitting}
+                onClick={handleConfirmWithdrawal}
                 className="w-full rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/40"
               >
-                Confirm
+                {submitting ? "Submitting..." : "Confirm"}
               </button>
             </div>
           </div>
