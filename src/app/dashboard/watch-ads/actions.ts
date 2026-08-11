@@ -1,3 +1,5 @@
+// src/app/dashboard/watch-ads/actions.ts
+
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
@@ -9,13 +11,12 @@ export type ClaimAdRewardResult =
 export async function claimAdReward(adId: string): Promise<ClaimAdRewardResult> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase.rpc("claim_ad_reward", {
-    p_ad_id: adId,
-  });
+  // ✅ FIX: Use type assertion to bypass TypeScript's strict typing
+  const { data, error } = await (supabase.rpc as any)('claim_ad_reward', { p_ad_id: adId });
 
   if (error) {
-    console.error("[claimAdReward]", error.message);
-    return { success: false, error: "unexpected" };
+    console.error("[claimAdReward] RPC error:", error.message);
+    return { success: false, error: "Database error occurred" };
   }
 
   const result = data as {
@@ -26,12 +27,12 @@ export async function claimAdReward(adId: string): Promise<ClaimAdRewardResult> 
   };
 
   if (!result.success) {
-    return { success: false, error: result.error ?? "unexpected" };
+    return { success: false, error: result.error ?? "Unexpected error" };
   }
 
   return {
     success: true,
     rewardType: result.reward_type as "cash" | "points",
-    rewardAmount: result.reward_amount!,
+    rewardAmount: result.reward_amount ?? 0,
   };
 }

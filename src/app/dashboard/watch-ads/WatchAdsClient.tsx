@@ -1049,10 +1049,9 @@
 // }
 
 
-  "use client";
+ "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Link from "next/link";
 import {
   MdOndemandVideo,
   MdPlayArrow,
@@ -1061,7 +1060,6 @@ import {
   MdTimer,
   MdCheckCircle,
   MdInfo,
-  MdCardMembership,
 } from "react-icons/md";
 import { claimAdReward } from "./actions";
 import { formatCurrency } from "@/lib/currency";
@@ -1098,29 +1096,19 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
 };
 
 // ── Ad-network sources with automatic fallback ──
-// 🔧 DEBUG MODE: HilltopAds is temporarily FIRST in the chain so we can
-// isolate and verify its behavior in the console logs (error codes, fill
-// rate, tag format) without ExoClick masking it by filling first.
-// Swap the order back once HilltopAds is confirmed working:
-//   [EXOCLICK, HILLTOPADS] for production priority (ExoClick first)
-//   [HILLTOPADS, EXOCLICK] for debugging HilltopAds (current)
 const AD_SOURCES = [
-  process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL,
   process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL,
+  process.env.NEXT_PUBLIC_ADSTERRA_VAST_URL,
 ].filter(Boolean) as string[];
 
 const FALLBACK_TAG =
   "https://s.magsrv.com/v1/vast.php?idz=6000044&ex-av=name";
 
-// ── Use all available sources + final fallback ──
 const ALL_SOURCES = [...AD_SOURCES, FALLBACK_TAG];
 
-const NO_FILL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-
-// ── localStorage key for cooldown persistence ──
+const NO_FILL_COOLDOWN_MS = 5 * 60 * 1000;
 const COOLDOWN_STORAGE_KEY = "earnxact_ad_cooldown_until";
 
-// ── Dynamic ad catalog ──
 type AdCategory = keyof typeof CATEGORY_COLORS;
 
 interface AdTemplate {
@@ -1177,7 +1165,7 @@ function generateAdPool(count: number): AdRow[] {
       category: t.category,
       reward_type: t.rewardType,
       reward_amount: reward,
-      vastTagUrl: undefined,
+      vast_tag_url: undefined,
     } as unknown as AdRow;
   });
 }
@@ -1222,8 +1210,6 @@ function VideoAdPlayer({
   const onNoFillRef = useRef(onNoFill);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-
-  // ── 🔄 SOURCE INDEX FOR FALLBACK CHAIN ──
   const sourceIndexRef = useRef(0);
   const retryCountRef = useRef(0);
 
@@ -1252,41 +1238,31 @@ function VideoAdPlayer({
     };
   }, []);
 
-  // ── 🔧 DEBUG: log every configured source (untruncated) once on mount,
-  // so a missing/empty env var is immediately obvious in the console
-  // instead of silently falling through to the static FALLBACK_TAG. ──
   useEffect(() => {
     ALL_SOURCES.forEach((s, i) => {
       const label =
-        i === 0 && process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL === s
-          ? "HilltopAds"
-          : i === 0 && process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL === s
-            ? "ExoClick"
+        i === 0 && process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL === s
+          ? "ExoClick"
+          : i === 1 && process.env.NEXT_PUBLIC_ADSTERRA_VAST_URL === s
+            ? "Adsterra"
             : s === FALLBACK_TAG
               ? "Static Fallback"
               : "Unknown";
       addDebug(`🔧 Source ${i + 1}/${ALL_SOURCES.length} [${label}]: ${s}`);
     });
-    if (!process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL) {
-      addDebug(
-        "⚠️ NEXT_PUBLIC_HILLTOPADS_VAST_URL is EMPTY/undefined — HilltopAds will never be requested",
-      );
-    }
   }, [addDebug]);
 
-  // ── Get current VAST tag based on source index ──
   const getVastTag = useCallback(() => {
-    const base = ad.vastTagUrl || 
+    const base = ad.vast_tag_url || 
       ALL_SOURCES[sourceIndexRef.current] || 
       ALL_SOURCES[0];
     const separator = base.includes("?") ? "&" : "?";
     const tag = `${base}${separator}cb=${Date.now()}`;
-    // 🔧 DEBUG: log the FULL tag (not truncated) so malformed params are visible
     addDebug(
       `📤 VAST Tag (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length}): ${tag}`,
     );
     return tag;
-  }, [ad.vastTagUrl, addDebug]);
+  }, [ad.vast_tag_url, addDebug]);
 
   useEffect(() => {
     addDebug("Loading IMA SDK...");
@@ -1302,7 +1278,6 @@ function VideoAdPlayer({
     }
   }, [addDebug]);
 
-  // ── Timer for remaining time ──
   useEffect(() => {
     if (status !== "playing") {
       if (timerRef.current) {
@@ -1332,22 +1307,12 @@ function VideoAdPlayer({
     };
   }, [status, addDebug]);
 
-  // ── 🔄 Handle source failure - try next source automatically ──
-  // NOTE: This is intentionally invisible to the user. The UI stays on a
-  // generic "loading" state while it silently walks the fallback chain
-  // (HilltopAds → ExoClick → static fallback tag, while debugging). The
-  // user should only ever see an interruption if every source is
-  // exhausted (no-fill / cooldown) or if they've hit their daily watch
-  // limit.
   const handleSourceFailure = useCallback(() => {
-    // Check if we have more sources to try
     if (sourceIndexRef.current < ALL_SOURCES.length - 1) {
       sourceIndexRef.current += 1;
       retryCountRef.current += 1;
-      addDebug(`🔄 Retrying with fallback source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} (attempt ${retryCountRef.current})`);
+      addDebug(`🔄 Retrying with fallback source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length}`);
       setStatus("retrying");
-
-      // Brief delay, then retry with next network
       setTimeout(() => {
         if (isMountedRef.current) {
           startAdRef.current?.();
@@ -1356,7 +1321,6 @@ function VideoAdPlayer({
       return;
     }
 
-    // ── All sources exhausted ──
     addDebug(`❌ All ${ALL_SOURCES.length} ad sources exhausted — no fill`);
     setStatus("error");
     if (timerRef.current) {
@@ -1366,8 +1330,8 @@ function VideoAdPlayer({
     setTimeout(() => onNoFillRef.current(), 900);
   }, [addDebug]);
 
-  // ── Start ad with current source ──
-  const startAdRef = useRef<() => void>();
+  // ✅ FIX: Add initial value to useRef
+  const startAdRef = useRef<() => void>(() => {});
 
   const startAd = useCallback(() => {
     addDebug(`▶️ startAd() called (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length})`);
@@ -1382,7 +1346,6 @@ function VideoAdPlayer({
     addDebug("📶 Status set to loading");
 
     try {
-      // Check if IMA SDK is loaded
       if (typeof google === "undefined" || !google.ima) {
         addDebug("⏳ IMA SDK not loaded, waiting...");
         setTimeout(() => {
@@ -1397,19 +1360,19 @@ function VideoAdPlayer({
         return;
       }
 
-      addDebug("🛠️ Creating AdDisplayContainer");
-      const adDisplayContainer = new google.ima.AdDisplayContainer(
-        adContainerRef.current,
-        videoRef.current,
-      );
+ addDebug("🛠️ Creating AdDisplayContainer");
+const ima = (window as any).google.ima;
+const adDisplayContainer = new ima.AdDisplayContainer(
+  adContainerRef.current,
+  videoRef.current,
+);
 
-      addDebug("🛠️ Initializing AdDisplayContainer (CRITICAL STEP)");
-      adDisplayContainer.initialize();
+addDebug("🛠️ Initializing AdDisplayContainer");
+adDisplayContainer.initialize();
 
-      addDebug("🛠️ Creating AdsLoader");
-      const adsLoader = new google.ima.AdsLoader(adDisplayContainer);
+addDebug("🛠️ Creating AdsLoader");
+const adsLoader = new ima.AdsLoader(adDisplayContainer);
 
-      // ── SUCCESS: Ad loaded ──
       adsLoader.addEventListener(
         google.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
         (e: any) => {
@@ -1418,7 +1381,6 @@ function VideoAdPlayer({
             const adsManager = e.getAdsManager(videoRef.current);
             addDebug("✅ AdsManager created successfully");
 
-            // ── Ad complete events ──
             adsManager.addEventListener(
               google.ima.AdEvent.Type.CONTENT_RESUME_REQUESTED,
               () => {
@@ -1428,7 +1390,6 @@ function VideoAdPlayer({
                   clearInterval(timerRef.current);
                   timerRef.current = null;
                 }
-                // Reset source index for next time
                 sourceIndexRef.current = 0;
                 retryCountRef.current = 0;
                 onCompleteRef.current(ad.id);
@@ -1444,17 +1405,12 @@ function VideoAdPlayer({
                   clearInterval(timerRef.current);
                   timerRef.current = null;
                 }
-                // Reset source index for next time
                 sourceIndexRef.current = 0;
                 retryCountRef.current = 0;
                 onCompleteRef.current(ad.id);
               },
             );
 
-            // ── Ad error after manager loaded ──
-            // 🔧 DEBUG: pull out the specific IMA error code/type/message so
-            // we can tell VAST_EMPTY_RESPONSE (no-fill) apart from a
-            // malformed-tag or network/CORS failure.
             adsManager.addEventListener(
               google.ima.AdErrorEvent.Type.AD_ERROR,
               (adErrorEvent: any) => {
@@ -1462,7 +1418,7 @@ function VideoAdPlayer({
                 addDebug(
                   `❌ Ad error (post-manager, source ${sourceIndexRef.current + 1}): ` +
                     `code=${err?.getErrorCode?.()} type=${err?.getType?.()} ` +
-                    `msg=${err?.getMessage?.()} innerError=${err?.getInnerError?.()}`,
+                    `msg=${err?.getMessage?.()}`,
                 );
                 console.error("Ad error details (post-manager):", err);
                 handleSourceFailure();
@@ -1485,10 +1441,6 @@ function VideoAdPlayer({
         },
       );
 
-      // ── 🔄 NO-FILL: This is where the fallback is triggered ──
-      // 🔧 DEBUG: same detailed error extraction as above, plus the raw
-      // vastTag we just requested so failures can be tied back to a
-      // specific network/tag directly from the console log.
       adsLoader.addEventListener(
         google.ima.AdErrorEvent.Type.AD_ERROR,
         (adErrorEvent: any) => {
@@ -1507,13 +1459,10 @@ function VideoAdPlayer({
             innerError: err?.getInnerError?.(),
             vastErrorCode: err?.getVastErrorCode?.(),
           });
-
-          // ── 🔄 AUTOMATIC FALLBACK: Try next source ──
           handleSourceFailure();
         },
       );
 
-      // ── Request ad ──
       const vastTag = getVastTag();
       addDebug(`📤 Requesting ads from: ${vastTag}`);
       const adsRequest = new google.ima.AdsRequest();
@@ -1532,9 +1481,7 @@ function VideoAdPlayer({
 
   startAdRef.current = startAd;
 
-  // ── Initial load ──
   useEffect(() => {
-    // Reset source index on new ad
     sourceIndexRef.current = 0;
     retryCountRef.current = 0;
     startAd();
@@ -1559,9 +1506,7 @@ function VideoAdPlayer({
               <div className="flex h-full items-center justify-center">
                 <div className="text-center text-white/50">
                   <MdOndemandVideo className="mx-auto text-5xl" />
-                  <p className="mt-3 text-sm">
-                    Click &quot;Watch Ad&quot; to start
-                  </p>
+                  <p className="mt-3 text-sm">Click "Watch Ad" to start</p>
                 </div>
               </div>
             )}
@@ -1575,9 +1520,6 @@ function VideoAdPlayer({
               </div>
             )}
 
-            {/* Silent fallback: looks identical to normal loading so the
-                switch between HilltopAds / ExoClick / fallback tag is
-                invisible to the viewer. */}
             {status === "retrying" && (
               <div className="flex h-full items-center justify-center">
                 <div className="text-center">
@@ -1620,12 +1562,6 @@ function VideoAdPlayer({
               <span className="flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
                 <MdTimer className="text-sm" />
                 {remainingTime}s
-              </span>
-            )}
-            {(status === "retrying" || status === "loading") && (
-              <span className="flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
-                <MdTimer className="text-sm animate-pulse" />
-                Loading...
               </span>
             )}
           </div>
@@ -1754,7 +1690,6 @@ export default function WatchAdsClient({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastCounter = useRef(0);
 
-  // ── COOLDOWN TIMER WITH LOCALSTORAGE PERSISTENCE ──
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -1829,11 +1764,7 @@ export default function WatchAdsClient({
       }
 
       setIsClaiming(true);
-
-      // TODO: replace with real claimAdReward(adId) call
-      // await claimAdReward(adId);
       const result = { success: true };
-
       setIsClaiming(false);
       setWatchingAd(null);
 
@@ -1971,7 +1902,7 @@ export default function WatchAdsClient({
           <div className="flex items-center gap-3 rounded-xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/5 px-4 py-3">
             <MdInfo className="shrink-0 text-xl text-[var(--brand-gold)]" />
             <p className="text-sm text-white/80">
-              You&apos;ve reached your daily limit of{" "}
+              You've reached your daily limit of{" "}
               <span className="font-medium">{dailyLimit} ads</span>. Limits
               reset at midnight UTC.
             </p>
