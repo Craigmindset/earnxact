@@ -18,6 +18,9 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "EarnXact",
   description: "Earn real cash completing tasks online",
+  other: {
+    "6a97888e-site-verification": "93488f4f25f0e389b689d733c2cf41e1",
+  },
 };
 
 export default function RootLayout({
