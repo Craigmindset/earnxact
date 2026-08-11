@@ -1048,7 +1048,8 @@
 //   );
 // }
 
-"use client";
+
+  "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
@@ -1096,6 +1097,91 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
   General: "from-zinc-600/30 to-zinc-950/60",
 };
 
+// ── Ad-network sources with automatic fallback ──
+// 🔧 DEBUG MODE: HilltopAds is temporarily FIRST in the chain so we can
+// isolate and verify its behavior in the console logs (error codes, fill
+// rate, tag format) without ExoClick masking it by filling first.
+// Swap the order back once HilltopAds is confirmed working:
+//   [EXOCLICK, HILLTOPADS] for production priority (ExoClick first)
+//   [HILLTOPADS, EXOCLICK] for debugging HilltopAds (current)
+const AD_SOURCES = [
+  process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL,
+  process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL,
+].filter(Boolean) as string[];
+
+const FALLBACK_TAG =
+  "https://s.magsrv.com/v1/vast.php?idz=6000044&ex-av=name";
+
+// ── Use all available sources + final fallback ──
+const ALL_SOURCES = [...AD_SOURCES, FALLBACK_TAG];
+
+const NO_FILL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
+// ── localStorage key for cooldown persistence ──
+const COOLDOWN_STORAGE_KEY = "earnxact_ad_cooldown_until";
+
+// ── Dynamic ad catalog ──
+type AdCategory = keyof typeof CATEGORY_COLORS;
+
+interface AdTemplate {
+  title: string;
+  category: AdCategory;
+  rewardType: "cash" | "points";
+}
+
+const AD_TEMPLATES: AdTemplate[] = [
+  { title: "GTBank Mobile App - Quick Tour", category: "Finance", rewardType: "cash" },
+  { title: "PalmPay Cashback Promo", category: "Finance", rewardType: "cash" },
+  { title: "Access Bank New Feature Spotlight", category: "Finance", rewardType: "points" },
+  { title: "Moniepoint Business Tools", category: "Finance", rewardType: "cash" },
+  { title: "ALX Learn to Code - Free Trial", category: "Education", rewardType: "points" },
+  { title: "uLesson Exam Prep Ad", category: "Education", rewardType: "points" },
+  { title: "Chess.com - Play & Improve", category: "Education", rewardType: "points" },
+  { title: "Jumia Mega Sale Preview", category: "Shopping", rewardType: "cash" },
+  { title: "Konga Flash Deals This Week", category: "Shopping", rewardType: "cash" },
+  { title: "Temu New User Offer", category: "Shopping", rewardType: "points" },
+  { title: "MTN Data Bundle Promo", category: "Lifestyle", rewardType: "cash" },
+  { title: "Bolt Ride Discount Code", category: "Lifestyle", rewardType: "cash" },
+  { title: "Netflix Naija Originals Trailer", category: "Lifestyle", rewardType: "points" },
+  { title: "Spotify Afrobeats Playlist Ad", category: "Lifestyle", rewardType: "points" },
+  { title: "Total Energies Fuel Rewards", category: "Energy", rewardType: "cash" },
+  { title: "Solar Inverter Flash Sale", category: "Energy", rewardType: "cash" },
+  { title: "EarnXact Partner Spotlight", category: "General", rewardType: "points" },
+  { title: "Sponsored: New App Launch", category: "General", rewardType: "cash" },
+];
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function randInt(min: number, max: number, step = 5) {
+  const steps = Math.floor((max - min) / step);
+  return min + Math.floor(Math.random() * (steps + 1)) * step;
+}
+
+function generateAdPool(count: number): AdRow[] {
+  const picks = shuffle(AD_TEMPLATES).slice(0, count);
+  return picks.map((t, i) => {
+    const duration = randInt(15, 45, 5);
+    const reward =
+      t.rewardType === "cash" ? randInt(20, 150, 5) : randInt(20, 150, 10);
+    return {
+      id: `mock-ad-${Date.now()}-${i}`,
+      title: t.title,
+      duration_seconds: duration,
+      category: t.category,
+      reward_type: t.rewardType,
+      reward_amount: reward,
+      vastTagUrl: undefined,
+    } as unknown as AdRow;
+  });
+}
+
 interface ToastItem {
   id: number;
   type: "cash" | "points";
@@ -1110,21 +1196,22 @@ interface Props {
   todayPoints: number;
 }
 
-type AdStatus = "idle" | "loading" | "playing" | "error";
+type AdStatus = "idle" | "loading" | "playing" | "error" | "retrying";
 
-// ── Debug Logger ───────────────────────────────────────────────
 const debugLog = (message: string, data?: any) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] 📺 AD DEBUG: ${message}`, data || "");
 };
 
-// ── AyeT-Studios Video Player with Google IMA ──────────────────
+// ── Video Ad Player with Automatic Fallback ──
 function VideoAdPlayer({
   ad,
   onComplete,
+  onNoFill,
 }: {
   ad: AdRow;
   onComplete: (adId: string) => void;
+  onNoFill: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const adContainerRef = useRef<HTMLDivElement>(null);
@@ -1132,10 +1219,16 @@ function VideoAdPlayer({
   const [remainingTime, setRemainingTime] = useState(ad.duration_seconds);
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const onCompleteRef = useRef(onComplete);
+  const onNoFillRef = useRef(onNoFill);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
 
+  // ── 🔄 SOURCE INDEX FOR FALLBACK CHAIN ──
+  const sourceIndexRef = useRef(0);
+  const retryCountRef = useRef(0);
+
   onCompleteRef.current = onComplete;
+  onNoFillRef.current = onNoFill;
 
   const addDebug = useCallback((message: string) => {
     debugLog(message);
@@ -1159,29 +1252,57 @@ function VideoAdPlayer({
     };
   }, []);
 
-  const VAST_TAG = useMemo(() => {
-    const tag =
-      ad.vastTagUrl ||
-      `https://pubads.g.doubleclick.net/gampad/ads?iu=/21775744923/external/single_ad_samples&sz=640x480&cust_params=sample_ct%3Dlinear&ciu_szs=300x250%2C728x90&gdfp_req=1&output=vast&unviewed_position_start=1&env=vp&impl=s&correlator=${Date.now()}`;
-    addDebug(`VAST Tag: ${tag.substring(0, 80)}...`);
+  // ── 🔧 DEBUG: log every configured source (untruncated) once on mount,
+  // so a missing/empty env var is immediately obvious in the console
+  // instead of silently falling through to the static FALLBACK_TAG. ──
+  useEffect(() => {
+    ALL_SOURCES.forEach((s, i) => {
+      const label =
+        i === 0 && process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL === s
+          ? "HilltopAds"
+          : i === 0 && process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL === s
+            ? "ExoClick"
+            : s === FALLBACK_TAG
+              ? "Static Fallback"
+              : "Unknown";
+      addDebug(`🔧 Source ${i + 1}/${ALL_SOURCES.length} [${label}]: ${s}`);
+    });
+    if (!process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL) {
+      addDebug(
+        "⚠️ NEXT_PUBLIC_HILLTOPADS_VAST_URL is EMPTY/undefined — HilltopAds will never be requested",
+      );
+    }
+  }, [addDebug]);
+
+  // ── Get current VAST tag based on source index ──
+  const getVastTag = useCallback(() => {
+    const base = ad.vastTagUrl || 
+      ALL_SOURCES[sourceIndexRef.current] || 
+      ALL_SOURCES[0];
+    const separator = base.includes("?") ? "&" : "?";
+    const tag = `${base}${separator}cb=${Date.now()}`;
+    // 🔧 DEBUG: log the FULL tag (not truncated) so malformed params are visible
+    addDebug(
+      `📤 VAST Tag (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length}): ${tag}`,
+    );
     return tag;
   }, [ad.vastTagUrl, addDebug]);
 
-  // Load IMA SDK
   useEffect(() => {
     addDebug("Loading IMA SDK...");
     if (!document.querySelector('script[src*="imasdk.googleapis.com"]')) {
       const script = document.createElement("script");
       script.src = "https://imasdk.googleapis.com/js/sdkloader/ima3.js";
       script.async = true;
-      script.onload = () => addDebug("IMA SDK loaded successfully");
-      script.onerror = () => addDebug("Failed to load IMA SDK");
+      script.onload = () => addDebug("✅ IMA SDK loaded successfully");
+      script.onerror = () => addDebug("❌ Failed to load IMA SDK");
       document.head.appendChild(script);
     } else {
-      addDebug("IMA SDK already loaded");
+      addDebug("✅ IMA SDK already loaded");
     }
   }, [addDebug]);
 
+  // ── Timer for remaining time ──
   useEffect(() => {
     if (status !== "playing") {
       if (timerRef.current) {
@@ -1196,7 +1317,7 @@ function VideoAdPlayer({
         if (prev <= 1) {
           clearInterval(timerRef.current!);
           timerRef.current = null;
-          addDebug("Ad timer reached 0");
+          addDebug("⏱️ Ad timer reached 0");
           return 0;
         }
         return prev - 1;
@@ -1211,13 +1332,49 @@ function VideoAdPlayer({
     };
   }, [status, addDebug]);
 
+  // ── 🔄 Handle source failure - try next source automatically ──
+  // NOTE: This is intentionally invisible to the user. The UI stays on a
+  // generic "loading" state while it silently walks the fallback chain
+  // (HilltopAds → ExoClick → static fallback tag, while debugging). The
+  // user should only ever see an interruption if every source is
+  // exhausted (no-fill / cooldown) or if they've hit their daily watch
+  // limit.
+  const handleSourceFailure = useCallback(() => {
+    // Check if we have more sources to try
+    if (sourceIndexRef.current < ALL_SOURCES.length - 1) {
+      sourceIndexRef.current += 1;
+      retryCountRef.current += 1;
+      addDebug(`🔄 Retrying with fallback source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} (attempt ${retryCountRef.current})`);
+      setStatus("retrying");
+
+      // Brief delay, then retry with next network
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          startAdRef.current?.();
+        }
+      }, 500);
+      return;
+    }
+
+    // ── All sources exhausted ──
+    addDebug(`❌ All ${ALL_SOURCES.length} ad sources exhausted — no fill`);
+    setStatus("error");
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setTimeout(() => onNoFillRef.current(), 900);
+  }, [addDebug]);
+
+  // ── Start ad with current source ──
+  const startAdRef = useRef<() => void>();
+
   const startAd = useCallback(() => {
-    addDebug("▶️ startAd() called");
+    addDebug(`▶️ startAd() called (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length})`);
 
     if (!adContainerRef.current || !videoRef.current) {
       addDebug("❌ ERROR: Ad container or video element not ready");
-      setStatus("error");
-      setTimeout(() => onCompleteRef.current(ad.id), 1000);
+      handleSourceFailure();
       return;
     }
 
@@ -1225,6 +1382,7 @@ function VideoAdPlayer({
     addDebug("📶 Status set to loading");
 
     try {
+      // Check if IMA SDK is loaded
       if (typeof google === "undefined" || !google.ima) {
         addDebug("⏳ IMA SDK not loaded, waiting...");
         setTimeout(() => {
@@ -1233,11 +1391,7 @@ function VideoAdPlayer({
             startAd();
           } else {
             addDebug("❌ ERROR: IMA SDK still not loaded after retry");
-            setStatus("error");
-            setTimeout(
-              () => onCompleteRef.current(ad.id),
-              ad.duration_seconds * 1000,
-            );
+            handleSourceFailure();
           }
         }, 1000);
         return;
@@ -1255,14 +1409,16 @@ function VideoAdPlayer({
       addDebug("🛠️ Creating AdsLoader");
       const adsLoader = new google.ima.AdsLoader(adDisplayContainer);
 
+      // ── SUCCESS: Ad loaded ──
       adsLoader.addEventListener(
         google.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
         (e: any) => {
-          addDebug("📥 AdsManagerLoaded event fired");
+          addDebug(`✅ AdsManagerLoaded event fired (source ${sourceIndexRef.current + 1})`);
           try {
             const adsManager = e.getAdsManager(videoRef.current);
             addDebug("✅ AdsManager created successfully");
 
+            // ── Ad complete events ──
             adsManager.addEventListener(
               google.ima.AdEvent.Type.CONTENT_RESUME_REQUESTED,
               () => {
@@ -1272,6 +1428,9 @@ function VideoAdPlayer({
                   clearInterval(timerRef.current);
                   timerRef.current = null;
                 }
+                // Reset source index for next time
+                sourceIndexRef.current = 0;
+                retryCountRef.current = 0;
                 onCompleteRef.current(ad.id);
               },
             );
@@ -1285,21 +1444,28 @@ function VideoAdPlayer({
                   clearInterval(timerRef.current);
                   timerRef.current = null;
                 }
+                // Reset source index for next time
+                sourceIndexRef.current = 0;
+                retryCountRef.current = 0;
                 onCompleteRef.current(ad.id);
               },
             );
 
+            // ── Ad error after manager loaded ──
+            // 🔧 DEBUG: pull out the specific IMA error code/type/message so
+            // we can tell VAST_EMPTY_RESPONSE (no-fill) apart from a
+            // malformed-tag or network/CORS failure.
             adsManager.addEventListener(
               google.ima.AdErrorEvent.Type.AD_ERROR,
-              (error: any) => {
-                addDebug("❌ Ad error event", { error });
-                console.error("Ad error details:", error);
-                setStatus("error");
-                if (timerRef.current) {
-                  clearInterval(timerRef.current);
-                  timerRef.current = null;
-                }
-                setTimeout(() => onCompleteRef.current(ad.id), 1000);
+              (adErrorEvent: any) => {
+                const err = adErrorEvent?.getError?.();
+                addDebug(
+                  `❌ Ad error (post-manager, source ${sourceIndexRef.current + 1}): ` +
+                    `code=${err?.getErrorCode?.()} type=${err?.getType?.()} ` +
+                    `msg=${err?.getMessage?.()} innerError=${err?.getInnerError?.()}`,
+                );
+                console.error("Ad error details (post-manager):", err);
+                handleSourceFailure();
               },
             );
 
@@ -1312,47 +1478,68 @@ function VideoAdPlayer({
               addDebug("📶 Status set to playing");
             }, 500);
           } catch (err) {
-            addDebug("❌ ERROR in AdsManagerLoaded event", { error: err });
+            addDebug(`❌ ERROR in AdsManagerLoaded event (source ${sourceIndexRef.current + 1})`);
             console.error("AdsManager error:", err);
-            setStatus("error");
-            if (timerRef.current) {
-              clearInterval(timerRef.current);
-              timerRef.current = null;
-            }
-            setTimeout(() => onCompleteRef.current(ad.id), 1000);
+            handleSourceFailure();
           }
         },
       );
 
+      // ── 🔄 NO-FILL: This is where the fallback is triggered ──
+      // 🔧 DEBUG: same detailed error extraction as above, plus the raw
+      // vastTag we just requested so failures can be tied back to a
+      // specific network/tag directly from the console log.
       adsLoader.addEventListener(
         google.ima.AdErrorEvent.Type.AD_ERROR,
-        (error: any) => {
-          addDebug("❌ Ad loader error", { error });
-          console.error("Ad loader error details:", error);
-          setStatus("error");
-          if (timerRef.current) {
-            clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          setTimeout(() => onCompleteRef.current(ad.id), 1000);
+        (adErrorEvent: any) => {
+          const err = adErrorEvent?.getError?.();
+          const errorCode = err?.getErrorCode?.();
+          const errorType = err?.getType?.();
+          const message = err?.getMessage?.();
+          addDebug(
+            `❌ Ad loader error (source ${sourceIndexRef.current + 1}): ` +
+              `code=${errorCode} type=${errorType} msg=${message}`,
+          );
+          console.error("Ad loader error details:", {
+            errorCode,
+            errorType,
+            message,
+            innerError: err?.getInnerError?.(),
+            vastErrorCode: err?.getVastErrorCode?.(),
+          });
+
+          // ── 🔄 AUTOMATIC FALLBACK: Try next source ──
+          handleSourceFailure();
         },
       );
 
-      addDebug(`📤 Requesting ads from: ${VAST_TAG.substring(0, 80)}...`);
+      // ── Request ad ──
+      const vastTag = getVastTag();
+      addDebug(`📤 Requesting ads from: ${vastTag}`);
       const adsRequest = new google.ima.AdsRequest();
-      adsRequest.adTagUrl = VAST_TAG;
+      adsRequest.adTagUrl = vastTag;
       adsRequest.linearAdSlotWidth = 640;
       adsRequest.linearAdSlotHeight = 360;
 
       adsLoader.requestAds(adsRequest);
       addDebug("📤 Ad request sent");
     } catch (err) {
-      addDebug("❌ CRITICAL ERROR in startAd", { error: err });
+      addDebug(`❌ CRITICAL ERROR in startAd (source ${sourceIndexRef.current + 1})`);
       console.error("Critical error:", err);
-      setStatus("error");
-      setTimeout(() => onCompleteRef.current(ad.id), 1000);
+      handleSourceFailure();
     }
-  }, [ad.id, ad.duration_seconds, VAST_TAG, addDebug]);
+  }, [ad.id, getVastTag, addDebug, handleSourceFailure]);
+
+  startAdRef.current = startAd;
+
+  // ── Initial load ──
+  useEffect(() => {
+    // Reset source index on new ad
+    sourceIndexRef.current = 0;
+    retryCountRef.current = 0;
+    startAd();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const progress =
     ad.duration_seconds > 0
@@ -1388,12 +1575,24 @@ function VideoAdPlayer({
               </div>
             )}
 
+            {/* Silent fallback: looks identical to normal loading so the
+                switch between HilltopAds / ExoClick / fallback tag is
+                invisible to the viewer. */}
+            {status === "retrying" && (
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center">
+                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[var(--brand-gold)]" />
+                  <p className="mt-2 text-sm text-white/50">Loading ad...</p>
+                </div>
+              </div>
+            )}
+
             {status === "error" && (
               <div className="flex h-full flex-col items-center justify-center">
                 <div className="px-6 text-center">
-                  <MdInfo className="mx-auto text-4xl text-red-400" />
+                  <MdInfo className="mx-auto text-4xl text-amber-400" />
                   <p className="mt-2 text-sm text-white/60">
-                    Ad failed to load. Reward credited shortly.
+                    No ad available from any source. Try again shortly.
                   </p>
                 </div>
               </div>
@@ -1421,6 +1620,12 @@ function VideoAdPlayer({
               <span className="flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
                 <MdTimer className="text-sm" />
                 {remainingTime}s
+              </span>
+            )}
+            {(status === "retrying" || status === "loading") && (
+              <span className="flex items-center gap-1 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+                <MdTimer className="text-sm animate-pulse" />
+                Loading...
               </span>
             )}
           </div>
@@ -1458,22 +1663,26 @@ function VideoAdPlayer({
           <p className="mt-0.5 text-sm text-white/50">
             {status === "playing"
               ? `Ad is playing... ${remainingTime}s remaining`
-              : status === "error"
-                ? "Having trouble loading the ad."
-                : "Watch the ad to earn your reward"}
+              : status === "retrying"
+                ? "Loading your ad..."
+                : status === "error"
+                  ? "No ads available right now. Please try again later."
+                  : "Watch the ad to earn your reward"}
           </p>
           <button
             onClick={startAd}
-            disabled={status !== "idle"}
+            disabled={status !== "idle" && status !== "error"}
             className="mt-3 w-full rounded-xl bg-[var(--brand-gold)] py-2.5 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === "idle"
               ? "▶ Watch Ad"
               : status === "loading"
                 ? "Loading..."
-                : status === "playing"
-                  ? `Ad Playing... ${remainingTime}s`
-                  : "Please wait..."}
+                : status === "retrying"
+                  ? "Loading..."
+                  : status === "playing"
+                    ? `Ad Playing... ${remainingTime}s`
+                    : "⚠️ Try Again"}
           </button>
           <p className="mt-2 text-center text-[11px] text-white/25">
             Do not close this window. Reward will be credited automatically.
@@ -1486,6 +1695,9 @@ function VideoAdPlayer({
             className="hidden border-t border-white/10 bg-black/50 p-3 text-xs font-mono text-white/60 max-h-40 overflow-y-auto"
           >
             <p className="mb-1 font-semibold text-white/80">🐛 Debug Log:</p>
+            <p className="mb-1 text-xs text-amber-400/60">
+              Sources: {ALL_SOURCES.length} | Current: {sourceIndexRef.current + 1}
+            </p>
             {debugInfo.map((msg, i) => (
               <p key={i} className="py-0.5 border-b border-white/5">
                 {msg}
@@ -1498,7 +1710,13 @@ function VideoAdPlayer({
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────
+function formatMMSS(totalSeconds: number) {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// ── Main Component ──
 export default function WatchAdsClient({
   ads,
   viewedAdIds,
@@ -1508,29 +1726,12 @@ export default function WatchAdsClient({
 }: Props) {
   const forcedTaskClassId = "task-class-1";
 
+  const [mockPool] = useState<AdRow[]>(() => generateAdPool(9));
+
   const effectiveAds = useMemo(() => {
     if (ads.length > 0) return ads;
-    return [
-      {
-        id: "test-ad-1",
-        title: "Sponsored Video - Watch & Earn",
-        duration_seconds: 30,
-        category: "General",
-        reward_type: "cash" as const,
-        reward_amount: 0.5,
-        vastTagUrl: `https://pubads.g.doubleclick.net/gampad/ads?iu=/21775744923/external/single_ad_samples&sz=640x480&cust_params=sample_ct%3Dlinear&ciu_szs=300x250%2C728x90&gdfp_req=1&output=vast&unviewed_position_start=1&env=vp&impl=s&correlator=${Date.now()}`,
-      },
-      {
-        id: "test-ad-2",
-        title: "Exclusive Offer - Watch Now",
-        duration_seconds: 30,
-        category: "General",
-        reward_type: "points" as const,
-        reward_amount: 50,
-        vastTagUrl: `https://pubads.g.doubleclick.net/gampad/ads?iu=/21775744923/external/single_ad_samples&sz=640x480&cust_params=sample_ct%3Dlinear&ciu_szs=300x250%2C728x90&gdfp_req=1&output=vast&unviewed_position_start=1&env=vp&impl=s&correlator=${Date.now() + 1}`,
-      },
-    ];
-  }, [ads]);
+    return mockPool;
+  }, [ads, mockPool]);
 
   const effectiveTaskClassId = forcedTaskClassId;
   const effectiveTodayEarned = todayEarned;
@@ -1551,11 +1752,73 @@ export default function WatchAdsClient({
   const [earnedToday, setEarnedToday] = useState(effectiveTodayEarned);
   const [pointsToday, setPointsToday] = useState(effectiveTodayPoints);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
-  const [claimError, setClaimError] = useState<string | null>(null);
   const toastCounter = useRef(0);
+
+  // ── COOLDOWN TIMER WITH LOCALSTORAGE PERSISTENCE ──
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = localStorage.getItem(COOLDOWN_STORAGE_KEY);
+      if (stored) {
+        const timestamp = parseInt(stored, 10);
+        if (timestamp > Date.now()) {
+          return timestamp;
+        }
+        localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+      }
+    } catch {
+      // localStorage not available
+    }
+    return null;
+  });
+
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
+    if (cooldownUntil !== null) {
+      try {
+        localStorage.setItem(COOLDOWN_STORAGE_KEY, String(cooldownUntil));
+      } catch {
+        // localStorage not available
+      }
+    } else {
+      try {
+        localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+      } catch {
+        // localStorage not available
+      }
+    }
+  }, [cooldownUntil]);
+
+  useEffect(() => {
+    if (!cooldownUntil) {
+      setCooldownRemaining(0);
+      return;
+    }
+
+    const tick = () => {
+      const remainingMs = cooldownUntil - Date.now();
+      if (remainingMs <= 0) {
+        setCooldownUntil(null);
+        setCooldownRemaining(0);
+        return;
+      }
+      setCooldownRemaining(Math.ceil(remainingMs / 1000));
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownUntil]);
+
+  const setCooldown = useCallback(() => {
+    const until = Date.now() + NO_FILL_COOLDOWN_MS;
+    setCooldownUntil(until);
+  }, []);
 
   const adsWatchedToday = watchedIds.size;
   const limitReached = dailyLimit > 0 && adsWatchedToday >= dailyLimit;
+  const onCooldown = cooldownUntil !== null && cooldownRemaining > 0;
 
   const handleWatchComplete = useCallback(
     async (adId: string) => {
@@ -1566,9 +1829,9 @@ export default function WatchAdsClient({
       }
 
       setIsClaiming(true);
-      setClaimError(null);
 
-      // TRUST SUCCESS FOR THIS GOOGLE TEST
+      // TODO: replace with real claimAdReward(adId) call
+      // await claimAdReward(adId);
       const result = { success: true };
 
       setIsClaiming(false);
@@ -1590,26 +1853,40 @@ export default function WatchAdsClient({
           () => setToasts((prev) => prev.filter((t) => t.id !== id)),
           4000,
         );
-      } else {
-        setClaimError("Failed to credit reward. Please try again.");
+
+        setCooldown();
       }
     },
-    [effectiveAds],
+    [effectiveAds, setCooldown],
   );
+
+  const handleNoFill = useCallback(() => {
+    setWatchingAd(null);
+    setCooldown();
+  }, [setCooldown]);
 
   const startWatching = useCallback(
     (ad: AdRow) => {
-      if (watchedIds.has(ad.id) || limitReached || watchingAd !== null) return;
-      setClaimError(null);
+      if (
+        watchedIds.has(ad.id) ||
+        limitReached ||
+        watchingAd !== null ||
+        onCooldown
+      )
+        return;
       setWatchingAd(ad);
     },
-    [watchedIds, limitReached, watchingAd],
+    [watchedIds, limitReached, watchingAd, onCooldown],
   );
 
   return (
     <>
       {watchingAd && !isClaiming && (
-        <VideoAdPlayer ad={watchingAd} onComplete={handleWatchComplete} />
+        <VideoAdPlayer
+          ad={watchingAd}
+          onComplete={handleWatchComplete}
+          onNoFill={handleNoFill}
+        />
       )}
       {isClaiming && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -1701,9 +1978,16 @@ export default function WatchAdsClient({
           </div>
         )}
 
-        {claimError && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
-            {claimError}
+        {!limitReached && onCooldown && (
+          <div className="flex items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+            <MdTimer className="shrink-0 text-xl text-amber-400" />
+            <p className="text-sm text-white/80">
+              No ads available right now. Try again in{" "}
+              <span className="font-mono font-medium text-amber-300">
+                {formatMMSS(cooldownRemaining)}
+              </span>
+              .
+            </p>
           </div>
         )}
 
@@ -1712,7 +1996,8 @@ export default function WatchAdsClient({
             {effectiveAds.map((ad) => {
               const isWatched = watchedIds.has(ad.id);
               const isLocked =
-                !isWatched && (limitReached || watchingAd !== null);
+                !isWatched &&
+                (limitReached || watchingAd !== null || onCooldown);
               const catColor =
                 CATEGORY_COLORS[ad.category] ?? CATEGORY_COLORS.General;
               const gradient =
@@ -1770,9 +2055,17 @@ export default function WatchAdsClient({
                         <>
                           <MdCheck /> Watched
                         </>
+                      ) : limitReached ? (
+                        <>
+                          <MdLock /> Limit reached
+                        </>
+                      ) : onCooldown ? (
+                        <>
+                          <MdTimer /> {formatMMSS(cooldownRemaining)}
+                        </>
                       ) : isLocked ? (
                         <>
-                          <MdLock /> {limitReached ? "Limit reached" : "Busy"}
+                          <MdLock /> Busy
                         </>
                       ) : (
                         <>
