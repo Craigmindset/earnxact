@@ -1,4 +1,4 @@
-"use client";
+ "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
@@ -358,7 +358,11 @@ function VideoAdPlayer({
             // ad itself loads. Frequently blank on redirect-style networks
             // — that's fine, the UI falls back to a generic label.
             adsManager.addEventListener(
-              google.ima.AdEvent.Type.LOADED,
+              // Cast to `any`: some IMA type declarations omit LOADED from
+              // the AdEvent.Type enum even though it exists at runtime,
+              // which was failing the TypeScript build (`Property 'LOADED'
+              // does not exist on type 'typeof Type'`).
+              (google.ima.AdEvent.Type as any).LOADED,
               (loadedEvent: any) => {
                 const loadedAd = loadedEvent?.getAd?.();
                 const networkTitle = loadedAd?.getTitle?.();
