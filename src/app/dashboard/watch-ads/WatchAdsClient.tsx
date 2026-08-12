@@ -1,1055 +1,4 @@
-// "use client";
-
-// import { useState, useEffect, useRef, useCallback } from "react";
-// import Link from "next/link";
-// import {
-//   MdOndemandVideo,
-//   MdPlayArrow,
-//   MdCheck,
-//   MdLock,
-//   MdTimer,
-//   MdCheckCircle,
-//   MdInfo,
-//   MdCardMembership,
-// } from "react-icons/md";
-// import { claimAdReward } from "./actions";
-// import { formatCurrency } from "@/lib/currency";
-// import { TASK_CLASSES } from "@/components/dashboard/task-class-data";
-// import type { AdRow } from "@/lib/database.types";
-
-// const CLASS_DAILY_LIMITS: Record<string, number> = {
-//   "task-class-1":    3,
-//   "task-class-2":    5,
-//   "upscale-class":   7,
-//   "superior-class":  10,
-//   "junior-manager":  12,
-//   "mid-executive":   15,
-//   "executive":       18,
-//   "senior-executive": 20,
-// };
-
-// const CATEGORY_COLORS: Record<string, string> = {
-//   Finance:   "bg-blue-500/15 text-blue-400",
-//   Education: "bg-violet-500/15 text-violet-400",
-//   Shopping:  "bg-pink-500/15 text-pink-400",
-//   Lifestyle: "bg-emerald-500/15 text-emerald-400",
-//   Energy:    "bg-amber-500/15 text-amber-400",
-//   General:   "bg-zinc-500/15 text-zinc-400",
-// };
-
-// const CATEGORY_GRADIENTS: Record<string, string> = {
-//   Finance:   "from-blue-600/30 to-blue-950/60",
-//   Education: "from-violet-600/30 to-violet-950/60",
-//   Shopping:  "from-pink-600/30 to-pink-950/60",
-//   Lifestyle: "from-emerald-600/30 to-emerald-950/60",
-//   Energy:    "from-amber-600/30 to-amber-950/60",
-//   General:   "from-zinc-600/30 to-zinc-950/60",
-// };
-
-// interface ToastItem {
-//   id: number;
-//   type: "cash" | "points";
-//   amount: number;
-// }
-
-// interface Props {
-//   ads: AdRow[];
-//   viewedAdIds: string[];
-//   taskClassId: string | null;
-//   todayEarned: number;
-//   todayPoints: number;
-// }
-
-// // ── Watch Modal ────────────────────────────────────────────────
-// function WatchModal({
-//   ad,
-//   onDone,
-// }: {
-//   ad: AdRow;
-//   onDone: (adId: string) => void;
-// }) {
-//   const [countdown, setCountdown] = useState(ad.duration_seconds);
-//   const doneCalledRef = useRef(false);
-//   const onDoneRef = useRef(onDone);
-//   onDoneRef.current = onDone;
-
-//   useEffect(() => {
-//     if (countdown <= 0) {
-//       if (!doneCalledRef.current) {
-//         doneCalledRef.current = true;
-//         onDoneRef.current(ad.id);
-//       }
-//       return;
-//     }
-//     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-//     return () => clearTimeout(timer);
-//   }, [countdown, ad.id]);
-
-//   const progress =
-//     ((ad.duration_seconds - countdown) / ad.duration_seconds) * 100;
-//   const gradient =
-//     CATEGORY_GRADIENTS[ad.category] ?? CATEGORY_GRADIENTS.General;
-//   const catColor = CATEGORY_COLORS[ad.category] ?? CATEGORY_COLORS.General;
-
-//   return (
-//     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-//       <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl">
-//         {/* Video placeholder / SDK injection point */}
-//         <div
-//           className={`relative flex h-44 flex-col items-center justify-center bg-gradient-to-br ${gradient}`}
-//         >
-//           <div id="ad-container" className="absolute inset-0 flex items-center justify-center">
-//             {/* Ad provider SDK renders here — replace placeholder with real VAST/rewarded video player */}
-//             <div className="flex flex-col items-center gap-2 text-center">
-//               <MdOndemandVideo className="animate-pulse text-5xl text-white/25" />
-//               <p className="px-6 text-sm font-medium text-white/50">{ad.title}</p>
-//             </div>
-//           </div>
-
-//           <span
-//             className={`absolute left-3 top-3 z-10 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catColor}`}
-//           >
-//             {ad.category}
-//           </span>
-//           <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 font-mono text-xs font-bold text-white">
-//             <MdTimer className="text-sm" />
-//             {countdown}s
-//           </div>
-//         </div>
-
-//         {/* Progress bar */}
-//         <div className="h-1 bg-white/10">
-//           <div
-//             className="h-full bg-[var(--brand-gold)] transition-all duration-1000 ease-linear"
-//             style={{ width: `${progress}%` }}
-//           />
-//         </div>
-
-//         <div className="space-y-4 p-5">
-//           <div>
-//             <h3 className="text-base font-semibold text-white">{ad.title}</h3>
-//             <p className="mt-0.5 text-sm text-white/50">
-//               Watch the full ad to earn your reward
-//             </p>
-//           </div>
-
-//           <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-//             <span className="text-sm text-white/60">Your reward</span>
-//             <span
-//               className={`text-base font-bold ${
-//                 ad.reward_type === "cash"
-//                   ? "text-[var(--brand-gold)]"
-//                   : "text-violet-400"
-//               }`}
-//             >
-//               {ad.reward_type === "cash"
-//                 ? `+${formatCurrency(ad.reward_amount)}`
-//                 : `+${Math.round(ad.reward_amount)} pts`}
-//             </span>
-//           </div>
-
-//           <p className="text-center text-[11px] text-white/25">
-//             Do not close this window. Reward will be credited automatically.
-//           </p>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
-
-// // ── Main Component ─────────────────────────────────────────────
-// export default function WatchAdsClient({
-//   ads,
-//   viewedAdIds,
-//   taskClassId,
-//   todayEarned,
-//   todayPoints,
-// }: Props) {
-//   const dailyLimit = taskClassId ? (CLASS_DAILY_LIMITS[taskClassId] ?? 0) : 0;
-//   const taskClass = TASK_CLASSES.find((c) => c.id === taskClassId) ?? null;
-
-//   const [watchedIds, setWatchedIds] = useState<Set<string>>(
-//     new Set(viewedAdIds)
-//   );
-//   const [watchingAd, setWatchingAd] = useState<AdRow | null>(null);
-//   const [isClaiming, setIsClaiming] = useState(false);
-//   const [earnedToday, setEarnedToday] = useState(todayEarned);
-//   const [pointsToday, setPointsToday] = useState(todayPoints);
-//   const [toasts, setToasts] = useState<ToastItem[]>([]);
-//   const [claimError, setClaimError] = useState<string | null>(null);
-//   const toastCounter = useRef(0);
-
-//   const adsWatchedToday = watchedIds.size;
-//   const limitReached = dailyLimit > 0 && adsWatchedToday >= dailyLimit;
-
-//   const handleWatchComplete = useCallback(
-//     async (adId: string) => {
-//       const ad = ads.find((a) => a.id === adId);
-//       if (!ad) {
-//         setWatchingAd(null);
-//         return;
-//       }
-
-//       setIsClaiming(true);
-//       setClaimError(null);
-
-//       const result = await claimAdReward(adId);
-//       setIsClaiming(false);
-//       setWatchingAd(null);
-
-//       if (result.success) {
-//         setWatchedIds((prev) => new Set([...prev, adId]));
-//         if (ad.reward_type === "cash") {
-//           setEarnedToday((prev) => prev + ad.reward_amount);
-//         } else {
-//           setPointsToday((prev) => prev + Math.round(ad.reward_amount));
-//         }
-//         toastCounter.current += 1;
-//         const id = toastCounter.current;
-//         setToasts((prev) => [
-//           ...prev,
-//           { id, type: ad.reward_type, amount: ad.reward_amount },
-//         ]);
-//         setTimeout(
-//           () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-//           4000
-//         );
-//       } else {
-//         setClaimError(
-//           result.error === "already_watched"
-//             ? "You already watched this ad today."
-//             : result.error === "daily_limit_reached"
-//               ? "Daily ad limit reached for your class."
-//               : result.error === "no_class_registered"
-//                 ? "You need an EarnPass class to watch ads."
-//                 : "Failed to credit reward. Please try again."
-//         );
-//       }
-//     },
-//     [ads]
-//   );
-
-//   function startWatching(ad: AdRow) {
-//     if (watchedIds.has(ad.id) || limitReached || watchingAd !== null) return;
-//     setClaimError(null);
-//     setWatchingAd(ad);
-//   }
-
-//   return (
-//     <>
-//       {watchingAd && !isClaiming && (
-//         <WatchModal ad={watchingAd} onDone={handleWatchComplete} />
-//       )}
-
-//       {isClaiming && (
-//         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-//           <div className="flex flex-col items-center gap-3">
-//             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[var(--brand-gold)]" />
-//             <p className="text-sm text-white/60">Crediting your reward…</p>
-//           </div>
-//         </div>
-//       )}
-
-//       {/* Toast notifications */}
-//       <div className="fixed right-4 top-20 z-40 flex flex-col gap-2">
-//         {toasts.map((toast) => (
-//           <div
-//             key={toast.id}
-//             className="flex items-center gap-2 rounded-xl border border-green-500/30 bg-zinc-900 px-4 py-3 shadow-xl"
-//           >
-//             <MdCheckCircle className="shrink-0 text-xl text-green-400" />
-//             <span className="text-sm font-medium text-white">
-//               {toast.type === "cash"
-//                 ? `+${formatCurrency(toast.amount)} credited to wallet!`
-//                 : `+${Math.round(toast.amount)} points earned!`}
-//             </span>
-//           </div>
-//         ))}
-//       </div>
-
-//       <div className="mx-auto max-w-6xl space-y-6">
-//         {/* Header */}
-//         <div>
-//           <h1 className="text-2xl font-bold text-white md:text-3xl">
-//             Watch Ads
-//           </h1>
-//           <p className="mt-1 text-sm text-white/50">
-//             Watch short video ads and earn cash or points instantly.
-//           </p>
-//         </div>
-
-//         {/* No class registered — prompt to get EarnPass */}
-//         {!taskClassId && (
-//           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 p-6">
-//             <div className="absolute inset-y-0 left-0 w-1 bg-[var(--brand-gold)]" />
-//             <div className="flex items-start gap-4">
-//               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-gold)]/15 text-[var(--brand-gold)] shadow-[0_0_20px_rgba(244,163,0,0.25)]">
-//                 <MdCardMembership className="text-2xl" />
-//               </div>
-//               <div>
-//                 <h2 className="text-base font-bold text-white">
-//                   You need an EarnPass class to watch ads
-//                 </h2>
-//                 <p className="mt-1 text-sm text-white/50">
-//                   Register for a task class to unlock daily ad watch slots and
-//                   start earning cash and points.
-//                 </p>
-//                 <Link
-//                   href="/dashboard/earnpass"
-//                   className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--brand-gold)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
-//                 >
-//                   <MdCardMembership className="text-base" />
-//                   Get EarnPass
-//                 </Link>
-//               </div>
-//             </div>
-//           </div>
-//         )}
-
-//         {/* Stats — only shown when user has a class */}
-//         {taskClassId && (
-//           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-//             {/* Daily progress */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Daily Progress
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-white">
-//                 {adsWatchedToday}
-//                 <span className="text-base font-normal text-white/40">
-//                   /{dailyLimit}
-//                 </span>
-//               </p>
-//               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-//                 <div
-//                   className="h-full rounded-full bg-[var(--brand-gold)] transition-all duration-500"
-//                   style={{
-//                     width: `${Math.min((adsWatchedToday / dailyLimit) * 100, 100)}%`,
-//                   }}
-//                 />
-//               </div>
-//               <p className="mt-2 text-xs text-white/40">
-//                 {taskClass?.name ?? taskClassId}
-//               </p>
-//             </div>
-
-//             {/* Cash earned today */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Cash Earned Today
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-[var(--brand-gold)]">
-//                 {formatCurrency(earnedToday)}
-//               </p>
-//               <p className="mt-2 text-xs text-white/40">Credited to wallet</p>
-//             </div>
-
-//             {/* Points earned today */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Points Earned Today
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-violet-400">
-//                 {pointsToday}
-//               </p>
-//               <p className="mt-2 text-xs text-white/40">Added to leaderboard</p>
-//             </div>
-//           </div>
-//         )}
-
-//         {/* Daily limit banner */}
-//         {taskClassId && limitReached && (
-//           <div className="flex items-center gap-3 rounded-xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/5 px-4 py-3">
-//             <MdInfo className="shrink-0 text-xl text-[var(--brand-gold)]" />
-//             <p className="text-sm text-white/80">
-//               You&apos;ve reached your daily limit of{" "}
-//               <span className="font-medium">{dailyLimit} ads</span> for{" "}
-//               <span className="font-medium">{taskClass?.name ?? taskClassId}</span>.
-//               Limits reset at midnight UTC.
-//             </p>
-//           </div>
-//         )}
-
-//         {/* Error */}
-//         {claimError && (
-//           <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
-//             {claimError}
-//           </div>
-//         )}
-
-//         {/* Ads grid — only shown when user has a class */}
-//         {taskClassId && (
-//           <>
-//             {ads.length === 0 ? (
-//               <div className="rounded-2xl border border-white/10 bg-zinc-900 p-10 text-center">
-//                 <MdOndemandVideo className="mx-auto text-5xl text-white/20" />
-//                 <p className="mt-3 text-sm text-white/40">
-//                   No ads available right now. Check back soon.
-//                 </p>
-//               </div>
-//             ) : (
-//               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-//                 {ads.map((ad) => {
-//                   const isWatched = watchedIds.has(ad.id);
-//                   const isLocked =
-//                     !isWatched && (limitReached || watchingAd !== null);
-//                   const catColor =
-//                     CATEGORY_COLORS[ad.category] ?? CATEGORY_COLORS.General;
-//                   const gradient =
-//                     CATEGORY_GRADIENTS[ad.category] ??
-//                     CATEGORY_GRADIENTS.General;
-
-//                   return (
-//                     <div
-//                       key={ad.id}
-//                       className={`overflow-hidden rounded-2xl border bg-zinc-900 transition-all ${
-//                         isWatched ? "border-green-500/20" : "border-white/10"
-//                       }`}
-//                     >
-//                       {/* Visual banner */}
-//                       <div
-//                         className={`relative flex h-32 items-center justify-center bg-gradient-to-br ${gradient}`}
-//                       >
-//                         <MdOndemandVideo className="text-4xl text-white/20" />
-//                         {isWatched && (
-//                           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-//                             <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-green-400 bg-green-400/20">
-//                               <MdCheck className="text-xl text-green-400" />
-//                             </div>
-//                           </div>
-//                         )}
-//                         <span
-//                           className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catColor}`}
-//                         >
-//                           {ad.category}
-//                         </span>
-//                         <span
-//                           className={`absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-//                             ad.reward_type === "cash"
-//                               ? "bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]"
-//                               : "bg-violet-500/20 text-violet-400"
-//                           }`}
-//                         >
-//                           {ad.reward_type === "cash" ? "Cash" : "Points"}
-//                         </span>
-//                       </div>
-
-//                       <div className="p-4">
-//                         <h3 className="text-sm font-semibold leading-snug text-white">
-//                           {ad.title}
-//                         </h3>
-//                         <div className="mt-1 flex items-center gap-1 text-xs text-white/40">
-//                           <MdTimer className="text-sm" />
-//                           {ad.duration_seconds}s
-//                         </div>
-//                         <p
-//                           className={`mt-2 text-lg font-bold ${
-//                             ad.reward_type === "cash"
-//                               ? "text-[var(--brand-gold)]"
-//                               : "text-violet-400"
-//                           }`}
-//                         >
-//                           {ad.reward_type === "cash"
-//                             ? `+${formatCurrency(ad.reward_amount)}`
-//                             : `+${Math.round(ad.reward_amount)} pts`}
-//                         </p>
-
-//                         <button
-//                           type="button"
-//                           onClick={() => startWatching(ad)}
-//                           disabled={isWatched || isLocked}
-//                           className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold transition-all ${
-//                             isWatched
-//                               ? "cursor-default bg-green-500/10 text-green-400"
-//                               : isLocked
-//                                 ? "cursor-not-allowed bg-white/5 text-white/25"
-//                                 : "bg-[var(--brand-gold)] text-black hover:brightness-110 active:scale-95"
-//                           }`}
-//                         >
-//                           {isWatched ? (
-//                             <>
-//                               <MdCheck />
-//                               Watched
-//                             </>
-//                           ) : isLocked ? (
-//                             <>
-//                               <MdLock />
-//                               {limitReached ? "Limit reached" : "Busy"}
-//                             </>
-//                           ) : (
-//                             <>
-//                               <MdPlayArrow />
-//                               Watch
-//                             </>
-//                           )}
-//                         </button>
-//                       </div>
-//                     </div>
-//                   );
-//                 })}
-//               </div>
-//             )}
-//           </>
-//         )}
-
-//         {taskClassId && (
-//           <p className="text-center text-xs text-white/25">
-//             Cash rewards are credited directly to your wallet. Points are added
-//             to the leaderboard. Daily limits reset at midnight UTC.
-//           </p>
-//         )}
-//       </div>
-//     </>
-//   );
-// }
-
-// "use client";
-
-// import { useState, useEffect, useRef, useCallback } from "react";
-// import Link from "next/link";
-// import {
-//   MdOndemandVideo,
-//   MdPlayArrow,
-//   MdCheck,
-//   MdLock,
-//   MdTimer,
-//   MdCheckCircle,
-//   MdInfo,
-//   MdCardMembership,
-// } from "react-icons/md";
-// import { claimAdReward } from "./actions";
-// import { formatCurrency } from "@/lib/currency";
-// import { TASK_CLASSES } from "@/components/dashboard/task-class-data";
-// import type { AdRow } from "@/lib/database.types";
-
-// const CLASS_DAILY_LIMITS: Record<string, number> = {
-//   "task-class-1": 3,
-//   "task-class-2": 5,
-//   "upscale-class": 7,
-//   "superior-class": 10,
-//   "junior-manager": 12,
-//   "mid-executive": 15,
-//   executive: 18,
-//   "senior-executive": 20,
-// };
-
-// const CATEGORY_COLORS: Record<string, string> = {
-//   Finance: "bg-blue-500/15 text-blue-400",
-//   Education: "bg-violet-500/15 text-violet-400",
-//   Shopping: "bg-pink-500/15 text-pink-400",
-//   Lifestyle: "bg-emerald-500/15 text-emerald-400",
-//   Energy: "bg-amber-500/15 text-amber-400",
-//   General: "bg-zinc-500/15 text-zinc-400",
-// };
-
-// const CATEGORY_GRADIENTS: Record<string, string> = {
-//   Finance: "from-blue-600/30 to-blue-950/60",
-//   Education: "from-violet-600/30 to-violet-950/60",
-//   Shopping: "from-pink-600/30 to-pink-950/60",
-//   Lifestyle: "from-emerald-600/30 to-emerald-950/60",
-//   Energy: "from-amber-600/30 to-amber-950/60",
-//   General: "from-zinc-600/30 to-zinc-950/60",
-// };
-
-// interface ToastItem {
-//   id: number;
-//   type: "cash" | "points";
-//   amount: number;
-// }
-
-// interface Props {
-//   ads: AdRow[];
-//   viewedAdIds: string[];
-//   taskClassId: string | null;
-//   todayEarned: number;
-//   todayPoints: number;
-// }
-
-// // ── Watch Modal ────────────────────────────────────────────────
-// function WatchModal({
-//   ad,
-//   onDone,
-// }: {
-//   ad: AdRow;
-//   onDone: (adId: string) => void;
-// }) {
-//   const [countdown, setCountdown] = useState(ad.duration_seconds);
-//   const doneCalledRef = useRef(false);
-//   const onDoneRef = useRef(onDone);
-//   onDoneRef.current = onDone;
-
-//   useEffect(() => {
-//     if (countdown <= 0) {
-//       if (!doneCalledRef.current) {
-//         doneCalledRef.current = true;
-//         onDoneRef.current(ad.id);
-//       }
-//       return;
-//     }
-//     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
-//     return () => clearTimeout(timer);
-//   }, [countdown, ad.id]);
-
-//   const progress =
-//     ((ad.duration_seconds - countdown) / ad.duration_seconds) * 100;
-//   const gradient =
-//     CATEGORY_GRADIENTS[ad.category] ?? CATEGORY_GRADIENTS.General;
-//   const catColor = CATEGORY_COLORS[ad.category] ?? CATEGORY_COLORS.General;
-
-//   return (
-//     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-//       <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl">
-//         {/* Video placeholder / SDK injection point */}
-//         <div
-//           className={`relative flex h-44 flex-col items-center justify-center bg-gradient-to-br ${gradient}`}
-//         >
-//           <div
-//             id="ad-container"
-//             className="absolute inset-0 flex items-center justify-center"
-//           >
-//             {/* Ad provider SDK renders here — replace placeholder with real VAST/rewarded video player */}
-//             <div className="flex flex-col items-center gap-2 text-center">
-//               <MdOndemandVideo className="animate-pulse text-5xl text-white/25" />
-//               <p className="px-6 text-sm font-medium text-white/50">
-//                 {ad.title}
-//               </p>
-//             </div>
-//           </div>
-
-//           <span
-//             className={`absolute left-3 top-3 z-10 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catColor}`}
-//           >
-//             {ad.category}
-//           </span>
-//           <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 font-mono text-xs font-bold text-white">
-//             <MdTimer className="text-sm" />
-//             {countdown}s
-//           </div>
-//         </div>
-
-//         {/* Progress bar */}
-//         <div className="h-1 bg-white/10">
-//           <div
-//             className="h-full bg-[var(--brand-gold)] transition-all duration-1000 ease-linear"
-//             style={{ width: `${progress}%` }}
-//           />
-//         </div>
-
-//         <div className="space-y-4 p-5">
-//           <div>
-//             <h3 className="text-base font-semibold text-white">{ad.title}</h3>
-//             <p className="mt-0.5 text-sm text-white/50">
-//               Watch the full ad to earn your reward
-//             </p>
-//           </div>
-
-//           <div className="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-//             <span className="text-sm text-white/60">Your reward</span>
-//             <span
-//               className={`text-base font-bold ${
-//                 ad.reward_type === "cash"
-//                   ? "text-[var(--brand-gold)]"
-//                   : "text-violet-400"
-//               }`}
-//             >
-//               {ad.reward_type === "cash"
-//                 ? `+${formatCurrency(ad.reward_amount)}`
-//                 : `+${Math.round(ad.reward_amount)} pts`}
-//             </span>
-//           </div>
-
-//           <p className="text-center text-[11px] text-white/25">
-//             Do not close this window. Reward will be credited automatically.
-//           </p>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
-
-// // ── Main Component ─────────────────────────────────────────────
-// export default function WatchAdsClient({
-//   ads,
-//   viewedAdIds,
-//   taskClassId,
-//   todayEarned,
-//   todayPoints,
-// }: Props) {
-//   // ==========================================================
-//   // TEST MODE (REMOVE BEFORE PRODUCTION)
-//   // ==========================================================
-//   const TEST_MODE = true; // Set to false to use real data
-
-//   const TEST_CLASS_ID = "task-class-1";
-//   const TEST_EARNED = 1250;
-//   const TEST_POINTS = 430;
-//   const TEST_VIEWED_ADS: string[] = [];
-//   // ==========================================================
-
-//   // Use either the real values or the test values
-//   const effectiveTaskClassId = TEST_MODE ? TEST_CLASS_ID : taskClassId;
-
-//   const effectiveTodayEarned = TEST_MODE ? TEST_EARNED : todayEarned;
-
-//   const effectiveTodayPoints = TEST_MODE ? TEST_POINTS : todayPoints;
-
-//   const effectiveViewedAds = TEST_MODE ? TEST_VIEWED_ADS : viewedAdIds;
-
-//   const dailyLimit = effectiveTaskClassId
-//     ? (CLASS_DAILY_LIMITS[effectiveTaskClassId] ?? 0)
-//     : 0;
-//   const taskClass =
-//     TASK_CLASSES.find((c) => c.id === effectiveTaskClassId) ?? null;
-
-//   const [watchedIds, setWatchedIds] = useState<Set<string>>(
-//     new Set(effectiveViewedAds),
-//   );
-//   const [watchingAd, setWatchingAd] = useState<AdRow | null>(null);
-//   const [isClaiming, setIsClaiming] = useState(false);
-//   const [earnedToday, setEarnedToday] = useState(effectiveTodayEarned);
-//   const [pointsToday, setPointsToday] = useState(effectiveTodayPoints);
-//   const [toasts, setToasts] = useState<ToastItem[]>([]);
-//   const [claimError, setClaimError] = useState<string | null>(null);
-//   const toastCounter = useRef(0);
-
-//   const adsWatchedToday = watchedIds.size;
-//   const limitReached = dailyLimit > 0 && adsWatchedToday >= dailyLimit;
-
-//   const handleWatchComplete = useCallback(
-//     async (adId: string) => {
-//       const ad = ads.find((a) => a.id === adId);
-//       if (!ad) {
-//         setWatchingAd(null);
-//         return;
-//       }
-
-//       setIsClaiming(true);
-//       setClaimError(null);
-
-//       let result;
-
-//       if (TEST_MODE) {
-//         // Fake a successful claim for testing
-//         await new Promise((resolve) => setTimeout(resolve, 1500));
-//         result = {
-//           success: true,
-//         };
-//       } else {
-//         result = await claimAdReward(adId);
-//       }
-
-//       setIsClaiming(false);
-//       setWatchingAd(null);
-
-//       if (result.success) {
-//         setWatchedIds((prev) => new Set([...prev, adId]));
-//         if (ad.reward_type === "cash") {
-//           setEarnedToday((prev) => prev + ad.reward_amount);
-//         } else {
-//           setPointsToday((prev) => prev + Math.round(ad.reward_amount));
-//         }
-//         toastCounter.current += 1;
-//         const id = toastCounter.current;
-//         setToasts((prev) => [
-//           ...prev,
-//           { id, type: ad.reward_type, amount: ad.reward_amount },
-//         ]);
-//         setTimeout(
-//           () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-//           4000,
-//         );
-//       } else {
-//         setClaimError(
-//           result.error === "already_watched"
-//             ? "You already watched this ad today."
-//             : result.error === "daily_limit_reached"
-//               ? "Daily ad limit reached for your class."
-//               : result.error === "no_class_registered"
-//                 ? "You need an EarnPass class to watch ads."
-//                 : "Failed to credit reward. Please try again.",
-//         );
-//       }
-//     },
-//     [ads],
-//   );
-
-//   function startWatching(ad: AdRow) {
-//     if (watchedIds.has(ad.id) || limitReached || watchingAd !== null) return;
-//     setClaimError(null);
-//     setWatchingAd(ad);
-//   }
-
-//   return (
-//     <>
-//       {watchingAd && !isClaiming && (
-//         <WatchModal ad={watchingAd} onDone={handleWatchComplete} />
-//       )}
-
-//       {isClaiming && (
-//         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-//           <div className="flex flex-col items-center gap-3">
-//             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-[var(--brand-gold)]" />
-//             <p className="text-sm text-white/60">Crediting your reward…</p>
-//           </div>
-//         </div>
-//       )}
-
-//       {/* Toast notifications */}
-//       <div className="fixed right-4 top-20 z-40 flex flex-col gap-2">
-//         {toasts.map((toast) => (
-//           <div
-//             key={toast.id}
-//             className="flex items-center gap-2 rounded-xl border border-green-500/30 bg-zinc-900 px-4 py-3 shadow-xl"
-//           >
-//             <MdCheckCircle className="shrink-0 text-xl text-green-400" />
-//             <span className="text-sm font-medium text-white">
-//               {toast.type === "cash"
-//                 ? `+${formatCurrency(toast.amount)} credited to wallet!`
-//                 : `+${Math.round(toast.amount)} points earned!`}
-//             </span>
-//           </div>
-//         ))}
-//       </div>
-
-//       <div className="mx-auto max-w-6xl space-y-6">
-//         {/* Header */}
-//         <div>
-//           <h1 className="text-2xl font-bold text-white md:text-3xl">
-//             Watch Ads
-//           </h1>
-//           <p className="mt-1 text-sm text-white/50">
-//             Watch short video ads and earn cash or points instantly.
-//           </p>
-//         </div>
-
-//         {/* No class registered — prompt to get EarnPass */}
-//         {!effectiveTaskClassId && (
-//           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 p-6">
-//             <div className="absolute inset-y-0 left-0 w-1 bg-[var(--brand-gold)]" />
-//             <div className="flex items-start gap-4">
-//               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-gold)]/15 text-[var(--brand-gold)] shadow-[0_0_20px_rgba(244,163,0,0.25)]">
-//                 <MdCardMembership className="text-2xl" />
-//               </div>
-//               <div>
-//                 <h2 className="text-base font-bold text-white">
-//                   You need an EarnPass class to watch ads
-//                 </h2>
-//                 <p className="mt-1 text-sm text-white/50">
-//                   Register for a task class to unlock daily ad watch slots and
-//                   start earning cash and points.
-//                 </p>
-//                 <Link
-//                   href="/dashboard/earnpass"
-//                   className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--brand-gold)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110"
-//                 >
-//                   <MdCardMembership className="text-base" />
-//                   Get EarnPass
-//                 </Link>
-//               </div>
-//             </div>
-//           </div>
-//         )}
-
-//         {/* Stats — only shown when user has a class */}
-//         {effectiveTaskClassId && (
-//           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-//             {/* Daily progress */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Daily Progress
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-white">
-//                 {adsWatchedToday}
-//                 <span className="text-base font-normal text-white/40">
-//                   /{dailyLimit}
-//                 </span>
-//               </p>
-//               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
-//                 <div
-//                   className="h-full rounded-full bg-[var(--brand-gold)] transition-all duration-500"
-//                   style={{
-//                     width: `${Math.min((adsWatchedToday / dailyLimit) * 100, 100)}%`,
-//                   }}
-//                 />
-//               </div>
-//               <p className="mt-2 text-xs text-white/40">
-//                 {taskClass?.name ?? effectiveTaskClassId}
-//               </p>
-//             </div>
-
-//             {/* Cash earned today */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Cash Earned Today
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-[var(--brand-gold)]">
-//                 {formatCurrency(earnedToday)}
-//               </p>
-//               <p className="mt-2 text-xs text-white/40">Credited to wallet</p>
-//             </div>
-
-//             {/* Points earned today */}
-//             <div className="rounded-2xl border border-white/10 bg-zinc-900 p-5">
-//               <p className="text-xs font-semibold uppercase tracking-wide text-white/40">
-//                 Points Earned Today
-//               </p>
-//               <p className="mt-1 text-2xl font-bold text-violet-400">
-//                 {pointsToday}
-//               </p>
-//               <p className="mt-2 text-xs text-white/40">Added to leaderboard</p>
-//             </div>
-//           </div>
-//         )}
-
-//         {/* Daily limit banner */}
-//         {effectiveTaskClassId && limitReached && (
-//           <div className="flex items-center gap-3 rounded-xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/5 px-4 py-3">
-//             <MdInfo className="shrink-0 text-xl text-[var(--brand-gold)]" />
-//             <p className="text-sm text-white/80">
-//               You&apos;ve reached your daily limit of{" "}
-//               <span className="font-medium">{dailyLimit} ads</span> for{" "}
-//               <span className="font-medium">
-//                 {taskClass?.name ?? effectiveTaskClassId}
-//               </span>
-//               . Limits reset at midnight UTC.
-//             </p>
-//           </div>
-//         )}
-
-//         {/* Error */}
-//         {claimError && (
-//           <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
-//             {claimError}
-//           </div>
-//         )}
-
-//         {/* Ads grid — only shown when user has a class */}
-//         {effectiveTaskClassId && (
-//           <>
-//             {ads.length === 0 ? (
-//               <div className="rounded-2xl border border-white/10 bg-zinc-900 p-10 text-center">
-//                 <MdOndemandVideo className="mx-auto text-5xl text-white/20" />
-//                 <p className="mt-3 text-sm text-white/40">
-//                   No ads available right now. Check back soon.
-//                 </p>
-//               </div>
-//             ) : (
-//               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-//                 {ads.map((ad) => {
-//                   const isWatched = watchedIds.has(ad.id);
-//                   const isLocked =
-//                     !isWatched && (limitReached || watchingAd !== null);
-//                   const catColor =
-//                     CATEGORY_COLORS[ad.category] ?? CATEGORY_COLORS.General;
-//                   const gradient =
-//                     CATEGORY_GRADIENTS[ad.category] ??
-//                     CATEGORY_GRADIENTS.General;
-
-//                   return (
-//                     <div
-//                       key={ad.id}
-//                       className={`overflow-hidden rounded-2xl border bg-zinc-900 transition-all ${
-//                         isWatched ? "border-green-500/20" : "border-white/10"
-//                       }`}
-//                     >
-//                       {/* Visual banner */}
-//                       <div
-//                         className={`relative flex h-32 items-center justify-center bg-gradient-to-br ${gradient}`}
-//                       >
-//                         <MdOndemandVideo className="text-4xl text-white/20" />
-//                         {isWatched && (
-//                           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-//                             <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-green-400 bg-green-400/20">
-//                               <MdCheck className="text-xl text-green-400" />
-//                             </div>
-//                           </div>
-//                         )}
-//                         <span
-//                           className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${catColor}`}
-//                         >
-//                           {ad.category}
-//                         </span>
-//                         <span
-//                           className={`absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-//                             ad.reward_type === "cash"
-//                               ? "bg-[var(--brand-gold)]/20 text-[var(--brand-gold)]"
-//                               : "bg-violet-500/20 text-violet-400"
-//                           }`}
-//                         >
-//                           {ad.reward_type === "cash" ? "Cash" : "Points"}
-//                         </span>
-//                       </div>
-
-//                       <div className="p-4">
-//                         <h3 className="text-sm font-semibold leading-snug text-white">
-//                           {ad.title}
-//                         </h3>
-//                         <div className="mt-1 flex items-center gap-1 text-xs text-white/40">
-//                           <MdTimer className="text-sm" />
-//                           {ad.duration_seconds}s
-//                         </div>
-//                         <p
-//                           className={`mt-2 text-lg font-bold ${
-//                             ad.reward_type === "cash"
-//                               ? "text-[var(--brand-gold)]"
-//                               : "text-violet-400"
-//                           }`}
-//                         >
-//                           {ad.reward_type === "cash"
-//                             ? `+${formatCurrency(ad.reward_amount)}`
-//                             : `+${Math.round(ad.reward_amount)} pts`}
-//                         </p>
-
-//                         <button
-//                           type="button"
-//                           onClick={() => startWatching(ad)}
-//                           disabled={isWatched || isLocked}
-//                           className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold transition-all ${
-//                             isWatched
-//                               ? "cursor-default bg-green-500/10 text-green-400"
-//                               : isLocked
-//                                 ? "cursor-not-allowed bg-white/5 text-white/25"
-//                                 : "bg-[var(--brand-gold)] text-black hover:brightness-110 active:scale-95"
-//                           }`}
-//                         >
-//                           {isWatched ? (
-//                             <>
-//                               <MdCheck />
-//                               Watched
-//                             </>
-//                           ) : isLocked ? (
-//                             <>
-//                               <MdLock />
-//                               {limitReached ? "Limit reached" : "Busy"}
-//                             </>
-//                           ) : (
-//                             <>
-//                               <MdPlayArrow />
-//                               Watch
-//                             </>
-//                           )}
-//                         </button>
-//                       </div>
-//                     </div>
-//                   );
-//                 })}
-//               </div>
-//             )}
-//           </>
-//         )}
-//        {effectiveTaskClassId && (
-//           <p className="text-center text-xs text-white/25">
-//             Cash rewards are credited directly to your wallet. Points are added
-//             to the leaderboard. Daily limits reset at midnight UTC.
-//           </p>
-//         )}
-//       </div>
-//     </>
-//   );
-// }
-
-
- "use client";
+"use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
@@ -1096,47 +45,70 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
 };
 
 // ── Ad-network sources with automatic fallback ──
-const AD_SOURCES = [
-  process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL,
-  process.env.NEXT_PUBLIC_ADSTERRA_VAST_URL,
-].filter(Boolean) as string[];
+// 🔧 SINGLE SOURCE OF TRUTH — this is the only place you need to touch to
+// add, remove, or reorder ad networks. Order in this array = priority
+// order at runtime (first entry is tried first, falls through on failure).
+//
+// To add a network:      add a { name, url } row below.
+// To remove a network:   delete its row below.
+// To reprioritize:       reorder the rows below.
+// To debug one network:  temporarily move its row to the top.
+//
+// Only networks with a non-empty env var are included — a missing/empty
+// var quietly drops that network from the chain (a warning is logged for
+// it below, on mount, so it's never a silent mystery).
+const AD_NETWORKS: { name: string; url: string | undefined }[] = [
+  { name: "HilltopAds", url: process.env.NEXT_PUBLIC_HILLTOPADS_VAST_URL },
+  { name: "ExoClick", url: process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL },
+];
 
 const FALLBACK_TAG =
   "https://s.magsrv.com/v1/vast.php?idz=6000044&ex-av=name";
 
-const ALL_SOURCES = [...AD_SOURCES, FALLBACK_TAG];
+// ── Derived — no need to touch below this line when changing networks ──
+const ACTIVE_NETWORKS = AD_NETWORKS.filter(
+  (n): n is { name: string; url: string } => Boolean(n.url),
+);
+const ALL_SOURCES = [...ACTIVE_NETWORKS.map((n) => n.url), FALLBACK_TAG];
+const SOURCE_LABELS = new Map<string, string>([
+  ...ACTIVE_NETWORKS.map((n) => [n.url, n.name] as const),
+  [FALLBACK_TAG, "Static Fallback"],
+]);
+
+function labelForSource(url: string): string {
+  return SOURCE_LABELS.get(url) ?? "Unknown";
+}
 
 const NO_FILL_COOLDOWN_MS = 5 * 60 * 1000;
 const COOLDOWN_STORAGE_KEY = "earnxact_ad_cooldown_until";
 
 type AdCategory = keyof typeof CATEGORY_COLORS;
 
+// 🔧 These templates drive the app's OWN reward bucketing (category +
+// cash/points), not the ad content itself — the actual video that plays
+// is chosen by whichever third-party network fills the request (Hilltop,
+// ExoClick, etc.) and is unrelated to anything here. There is intentionally
+// no "title" field: a specific brand name here would misrepresent what's
+// about to play, since we don't control or know the creative in advance.
 interface AdTemplate {
-  title: string;
   category: AdCategory;
   rewardType: "cash" | "points";
 }
 
 const AD_TEMPLATES: AdTemplate[] = [
-  { title: "GTBank Mobile App - Quick Tour", category: "Finance", rewardType: "cash" },
-  { title: "PalmPay Cashback Promo", category: "Finance", rewardType: "cash" },
-  { title: "Access Bank New Feature Spotlight", category: "Finance", rewardType: "points" },
-  { title: "Moniepoint Business Tools", category: "Finance", rewardType: "cash" },
-  { title: "ALX Learn to Code - Free Trial", category: "Education", rewardType: "points" },
-  { title: "uLesson Exam Prep Ad", category: "Education", rewardType: "points" },
-  { title: "Chess.com - Play & Improve", category: "Education", rewardType: "points" },
-  { title: "Jumia Mega Sale Preview", category: "Shopping", rewardType: "cash" },
-  { title: "Konga Flash Deals This Week", category: "Shopping", rewardType: "cash" },
-  { title: "Temu New User Offer", category: "Shopping", rewardType: "points" },
-  { title: "MTN Data Bundle Promo", category: "Lifestyle", rewardType: "cash" },
-  { title: "Bolt Ride Discount Code", category: "Lifestyle", rewardType: "cash" },
-  { title: "Netflix Naija Originals Trailer", category: "Lifestyle", rewardType: "points" },
-  { title: "Spotify Afrobeats Playlist Ad", category: "Lifestyle", rewardType: "points" },
-  { title: "Total Energies Fuel Rewards", category: "Energy", rewardType: "cash" },
-  { title: "Solar Inverter Flash Sale", category: "Energy", rewardType: "cash" },
-  { title: "EarnXact Partner Spotlight", category: "General", rewardType: "points" },
-  { title: "Sponsored: New App Launch", category: "General", rewardType: "cash" },
+  { category: "Finance", rewardType: "cash" },
+  { category: "Finance", rewardType: "points" },
+  { category: "Education", rewardType: "points" },
+  { category: "Shopping", rewardType: "cash" },
+  { category: "Shopping", rewardType: "points" },
+  { category: "Lifestyle", rewardType: "cash" },
+  { category: "Lifestyle", rewardType: "points" },
+  { category: "Energy", rewardType: "cash" },
+  { category: "General", rewardType: "points" },
 ];
+
+// Number of ad cards shown in the grid at once.
+const AD_POOL_SIZE = 6;
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -1160,7 +132,6 @@ function generateAdPool(count: number): AdRow[] {
       t.rewardType === "cash" ? randInt(20, 150, 5) : randInt(20, 150, 10);
     return {
       id: `mock-ad-${Date.now()}-${i}`,
-      title: t.title,
       duration_seconds: duration,
       category: t.category,
       reward_type: t.rewardType,
@@ -1206,6 +177,11 @@ function VideoAdPlayer({
   const [status, setStatus] = useState<AdStatus>("idle");
   const [remainingTime, setRemainingTime] = useState(ad.duration_seconds);
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
+  // 🔧 Title as reported by the ad network itself (VAST <AdTitle>), read via
+  // IMA's ad.getTitle() once the network responds. Networks — especially
+  // redirect-style tags like Hilltop's — often leave this blank, so we
+  // fall back to a generic label rather than guessing.
+  const [liveAdTitle, setLiveAdTitle] = useState<string | null>(null);
   const onCompleteRef = useRef(onComplete);
   const onNoFillRef = useRef(onNoFill);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -1240,15 +216,12 @@ function VideoAdPlayer({
 
   useEffect(() => {
     ALL_SOURCES.forEach((s, i) => {
-      const label =
-        i === 0 && process.env.NEXT_PUBLIC_EXOCLICK_VAST_URL === s
-          ? "ExoClick"
-          : i === 1 && process.env.NEXT_PUBLIC_ADSTERRA_VAST_URL === s
-            ? "Adsterra"
-            : s === FALLBACK_TAG
-              ? "Static Fallback"
-              : "Unknown";
-      addDebug(`🔧 Source ${i + 1}/${ALL_SOURCES.length} [${label}]: ${s}`);
+      addDebug(`🔧 Source ${i + 1}/${ALL_SOURCES.length} [${labelForSource(s)}]: ${s}`);
+    });
+    // Warn about any network in AD_NETWORKS whose env var is empty — it was
+    // silently dropped from ALL_SOURCES above and will never be requested.
+    AD_NETWORKS.filter((n) => !n.url).forEach((n) => {
+      addDebug(`⚠️ Env var for ${n.name} is EMPTY/undefined — ${n.name} will never be requested`);
     });
   }, [addDebug]);
 
@@ -1259,7 +232,7 @@ function VideoAdPlayer({
     const separator = base.includes("?") ? "&" : "?";
     const tag = `${base}${separator}cb=${Date.now()}`;
     addDebug(
-      `📤 VAST Tag (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length}): ${tag}`,
+      `📤 VAST Tag (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}]): ${tag}`,
     );
     return tag;
   }, [ad.vast_tag_url, addDebug]);
@@ -1308,10 +281,11 @@ function VideoAdPlayer({
   }, [status, addDebug]);
 
   const handleSourceFailure = useCallback(() => {
+    setLiveAdTitle(null);
     if (sourceIndexRef.current < ALL_SOURCES.length - 1) {
       sourceIndexRef.current += 1;
       retryCountRef.current += 1;
-      addDebug(`🔄 Retrying with fallback source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length}`);
+      addDebug(`🔄 Retrying with fallback source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}]`);
       setStatus("retrying");
       setTimeout(() => {
         if (isMountedRef.current) {
@@ -1330,11 +304,10 @@ function VideoAdPlayer({
     setTimeout(() => onNoFillRef.current(), 900);
   }, [addDebug]);
 
-  // ✅ FIX: Add initial value to useRef
   const startAdRef = useRef<() => void>(() => {});
 
   const startAd = useCallback(() => {
-    addDebug(`▶️ startAd() called (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length})`);
+    addDebug(`▶️ startAd() called (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}])`);
 
     if (!adContainerRef.current || !videoRef.current) {
       addDebug("❌ ERROR: Ad container or video element not ready");
@@ -1360,26 +333,43 @@ function VideoAdPlayer({
         return;
       }
 
- addDebug("🛠️ Creating AdDisplayContainer");
-const ima = (window as any).google.ima;
-const adDisplayContainer = new ima.AdDisplayContainer(
-  adContainerRef.current,
-  videoRef.current,
-);
+      addDebug("🛠️ Creating AdDisplayContainer");
+      const ima = (window as any).google.ima;
+      const adDisplayContainer = new ima.AdDisplayContainer(
+        adContainerRef.current,
+        videoRef.current,
+      );
 
-addDebug("🛠️ Initializing AdDisplayContainer");
-adDisplayContainer.initialize();
+      addDebug("🛠️ Initializing AdDisplayContainer");
+      adDisplayContainer.initialize();
 
-addDebug("🛠️ Creating AdsLoader");
-const adsLoader = new ima.AdsLoader(adDisplayContainer);
+      addDebug("🛠️ Creating AdsLoader");
+      const adsLoader = new ima.AdsLoader(adDisplayContainer);
 
       adsLoader.addEventListener(
         google.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
         (e: any) => {
-          addDebug(`✅ AdsManagerLoaded event fired (source ${sourceIndexRef.current + 1})`);
+          addDebug(`✅ AdsManagerLoaded event fired (source ${sourceIndexRef.current + 1} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}])`);
           try {
             const adsManager = e.getAdsManager(videoRef.current);
             addDebug("✅ AdsManager created successfully");
+
+            // 🔧 Pull the network-provided title (VAST <AdTitle>) once the
+            // ad itself loads. Frequently blank on redirect-style networks
+            // — that's fine, the UI falls back to a generic label.
+            adsManager.addEventListener(
+              google.ima.AdEvent.Type.LOADED,
+              (loadedEvent: any) => {
+                const loadedAd = loadedEvent?.getAd?.();
+                const networkTitle = loadedAd?.getTitle?.();
+                if (networkTitle && networkTitle.trim().length > 0) {
+                  addDebug(`ℹ️ Network provided ad title: "${networkTitle}"`);
+                  setLiveAdTitle(networkTitle.trim());
+                } else {
+                  addDebug("ℹ️ Network did not provide an ad title (common for this network)");
+                }
+              },
+            );
 
             adsManager.addEventListener(
               google.ima.AdEvent.Type.CONTENT_RESUME_REQUESTED,
@@ -1416,7 +406,7 @@ const adsLoader = new ima.AdsLoader(adDisplayContainer);
               (adErrorEvent: any) => {
                 const err = adErrorEvent?.getError?.();
                 addDebug(
-                  `❌ Ad error (post-manager, source ${sourceIndexRef.current + 1}): ` +
+                  `❌ Ad error (post-manager, source ${sourceIndexRef.current + 1} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}]): ` +
                     `code=${err?.getErrorCode?.()} type=${err?.getType?.()} ` +
                     `msg=${err?.getMessage?.()}`,
                 );
@@ -1449,10 +439,11 @@ const adsLoader = new ima.AdsLoader(adDisplayContainer);
           const errorType = err?.getType?.();
           const message = err?.getMessage?.();
           addDebug(
-            `❌ Ad loader error (source ${sourceIndexRef.current + 1}): ` +
+            `❌ Ad loader error (source ${sourceIndexRef.current + 1} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}]): ` +
               `code=${errorCode} type=${errorType} msg=${message}`,
           );
           console.error("Ad loader error details:", {
+            network: labelForSource(ALL_SOURCES[sourceIndexRef.current]),
             errorCode,
             errorType,
             message,
@@ -1506,7 +497,7 @@ const adsLoader = new ima.AdsLoader(adDisplayContainer);
               <div className="flex h-full items-center justify-center">
                 <div className="text-center text-white/50">
                   <MdOndemandVideo className="mx-auto text-5xl" />
-                  <p className="mt-3 text-sm">Click "Watch Ad" to start</p>
+                  <p className="mt-3 text-sm">Click &quot;Watch Ad&quot; to start</p>
                 </div>
               </div>
             )}
@@ -1595,7 +586,9 @@ const adsLoader = new ima.AdsLoader(adDisplayContainer);
         </div>
 
         <div className="p-4">
-          <h3 className="text-base font-semibold text-white">{ad.title}</h3>
+          <h3 className="text-base font-semibold text-white">
+            {liveAdTitle ?? "Sponsored Video Ad"}
+          </h3>
           <p className="mt-0.5 text-sm text-white/50">
             {status === "playing"
               ? `Ad is playing... ${remainingTime}s remaining`
@@ -1662,7 +655,18 @@ export default function WatchAdsClient({
 }: Props) {
   const forcedTaskClassId = "task-class-1";
 
-  const [mockPool] = useState<AdRow[]>(() => generateAdPool(9));
+  // 🔧 HYDRATION FIX: generateAdPool() calls Math.random()/Date.now(), so
+  // running it inside useState(() => ...) executes it once during SSR and
+  // again during client hydration with DIFFERENT results — exactly what
+  // throws "Minified React error #418". Start with an empty pool (same on
+  // server and client) and fill it in an effect that only runs client-side.
+  const [mockPool, setMockPool] = useState<AdRow[]>([]);
+  const [mockPoolReady, setMockPoolReady] = useState(false);
+
+  useEffect(() => {
+    setMockPool(generateAdPool(AD_POOL_SIZE));
+    setMockPoolReady(true);
+  }, []);
 
   const effectiveAds = useMemo(() => {
     if (ads.length > 0) return ads;
@@ -1690,24 +694,28 @@ export default function WatchAdsClient({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastCounter = useRef(0);
 
-  const [cooldownUntil, setCooldownUntil] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
+  // 🔧 HYDRATION FIX: reading localStorage inside a useState initializer has
+  // the same SSR/client mismatch problem as generateAdPool above. Start at
+  // null on both server and client, then read it in an effect post-mount.
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  useEffect(() => {
     try {
       const stored = localStorage.getItem(COOLDOWN_STORAGE_KEY);
       if (stored) {
         const timestamp = parseInt(stored, 10);
         if (timestamp > Date.now()) {
-          return timestamp;
+          setCooldownUntil(timestamp);
+        } else {
+          localStorage.removeItem(COOLDOWN_STORAGE_KEY);
         }
-        localStorage.removeItem(COOLDOWN_STORAGE_KEY);
       }
     } catch {
       // localStorage not available
     }
-    return null;
-  });
-
-  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (cooldownUntil !== null) {
@@ -1902,7 +910,7 @@ export default function WatchAdsClient({
           <div className="flex items-center gap-3 rounded-xl border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/5 px-4 py-3">
             <MdInfo className="shrink-0 text-xl text-[var(--brand-gold)]" />
             <p className="text-sm text-white/80">
-              You've reached your daily limit of{" "}
+              You&apos;ve reached your daily limit of{" "}
               <span className="font-medium">{dailyLimit} ads</span>. Limits
               reset at midnight UTC.
             </p>
@@ -1922,7 +930,18 @@ export default function WatchAdsClient({
           </div>
         )}
 
-        {effectiveTaskClassId && (
+        {effectiveTaskClassId && !mockPoolReady && ads.length === 0 && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: AD_POOL_SIZE }).map((_, i) => (
+              <div
+                key={i}
+                className="h-64 animate-pulse rounded-2xl border border-white/10 bg-zinc-900"
+              />
+            ))}
+          </div>
+        )}
+
+        {effectiveTaskClassId && (ads.length > 0 || mockPoolReady) && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {effectiveAds.map((ad) => {
               const isWatched = watchedIds.has(ad.id);
@@ -1962,8 +981,8 @@ export default function WatchAdsClient({
                     </span>
                   </div>
                   <div className="p-4">
-                    <h3 className="text-sm font-semibold leading-snug text-white">
-                      {ad.title}
+                    <h3 className="text-sm font-semibold leading-snug text-white/70">
+                      Sponsored Video Ad
                     </h3>
                     <div className="mt-1 flex items-center gap-1 text-xs text-white/40">
                       <MdTimer className="text-sm" />
