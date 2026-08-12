@@ -188,6 +188,11 @@ function VideoAdPlayer({
   const isMountedRef = useRef(true);
   const sourceIndexRef = useRef(0);
   const retryCountRef = useRef(0);
+  // 🔧 Guards against React 18 Strict Mode double-invoking the mount effect
+  // in dev, which was firing startAd() twice and creating two competing
+  // AdsManager instances against the same <video> element (the root cause
+  // of the ERR_CACHE_OPERATION_NOT_SUPPORTED / adPlayError seen in prod logs).
+  const hasStartedRef = useRef(false);
 
   onCompleteRef.current = onComplete;
   onNoFillRef.current = onNoFill;
@@ -343,6 +348,30 @@ function VideoAdPlayer({
       addDebug("🛠️ Initializing AdDisplayContainer");
       adDisplayContainer.initialize();
 
+      // 🔧 DIAGNOSTIC: IMA creates its own internal <video> element inside
+      // adContainerRef to actually play the ad — we have no direct
+      // reference to it. If that video fails to decode/load (corrupt file,
+      // wrong content-type, etc.), the native HTMLMediaElement fires an
+      // 'error' event on the <video> itself, but media 'error' events do
+      // NOT bubble, so it never reaches normal listeners up the tree unless
+      // we listen in the CAPTURE phase. This surfaces exactly what's wrong
+      // (network vs decode vs source-not-supported) instead of us guessing.
+      adContainerRef.current?.addEventListener(
+        "error",
+        (e: Event) => {
+          const target = e.target as HTMLVideoElement;
+          if (target?.tagName === "VIDEO") {
+            const mediaError = target.error;
+            addDebug(
+              `❌ Native <video> error (source ${sourceIndexRef.current + 1} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}]): ` +
+                `code=${mediaError?.code} message=${mediaError?.message || "(none)"} ` +
+                `networkState=${target.networkState} readyState=${target.readyState}`,
+            );
+          }
+        },
+        true, // capture phase — required since 'error' doesn't bubble on media elements
+      );
+
       addDebug("🛠️ Creating AdsLoader");
       const adsLoader = new ima.AdsLoader(adDisplayContainer);
 
@@ -422,6 +451,23 @@ function VideoAdPlayer({
             setTimeout(() => {
               addDebug("🛠️ Initializing AdsManager");
               adsManager.init(640, 360, google.ima.ViewMode.NORMAL);
+
+              // 🔧 AUTOPLAY FIX (corrected): IMA creates and drives its OWN
+              // internal <video> element inside adContainerRef for the ad
+              // creative — it does NOT play through our hidden `videoRef`.
+              // Muting `videoRef.current` therefore never reached the video
+              // Chrome was actually trying to autoplay, so the autoplay
+              // block was silently swallowing playback the whole time (the
+              // ad still ran its real internal timeline — note the ~6s gap
+              // between our on-screen timer hitting 0 and the real
+              // CONTENT_RESUME_REQUESTED event — but nothing ever rendered).
+              // adsManager.setVolume(0) is IMA's own documented API for
+              // muting whatever video element it's actually managing, and
+              // muted playback is always allowed by Chrome's autoplay
+              // policy regardless of gesture timing. Must be called before
+              // start() so the ad is muted from its very first frame.
+              adsManager.setVolume(0);
+
               addDebug("▶️ Starting AdsManager");
               adsManager.start();
               setStatus("playing");
@@ -477,6 +523,12 @@ function VideoAdPlayer({
   startAdRef.current = startAd;
 
   useEffect(() => {
+    // 🔧 Prevents Strict Mode's dev-only double-invoke of this effect from
+    // calling startAd() twice for the same mounted instance, which was
+    // creating two AdsManager instances racing over the same <video> tag.
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+
     sourceIndexRef.current = 0;
     retryCountRef.current = 0;
     startAd();
