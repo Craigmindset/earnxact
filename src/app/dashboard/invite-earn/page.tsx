@@ -40,13 +40,16 @@ type ReferralStats = {
   lastClaimDate: string | null;
 };
 
-// One row per claimed referral, sourced directly from public.referrals
-// (referral_claim = true), newest claim first.
+// One row per claimed referral reward - either a flat signup reward
+// (public.referrals, referral_claim = true) or a 10% purchase commission
+// (public.referral_purchase_commissions, claimed = true) - merged and
+// sorted newest first.
 type ClaimHistoryEntry = {
   id: string;
   refereeName: string;
   rewardAmount: number;
   createdAt: string;
+  kind: "signup" | "purchase";
 };
 
 export default function InviteEarnPage() {
@@ -232,8 +235,15 @@ export default function InviteEarnPage() {
     }
   }
 
-  // Loads every referral this user has already claimed, straight from
-  // public.referrals (referral_claim = true), newest first.
+  // Loads this user's referral earnings history, merging two ledgers:
+  // - public.referrals (flat N50 signup rewards) - only rows the user has
+  //   actually claimed via the "Claim" button (referral_claim = true).
+  // - public.referral_purchase_commissions (10% purchase commissions) -
+  //   these are auto-credited straight to wallet_balance the moment a
+  //   referral purchases a plan (see apply_membership_payment()), so every
+  //   row here is already settled (claimed = true from creation) and shows
+  //   up immediately, with no separate claim step.
+  // Sorted newest first.
   async function loadHistory() {
     setHistoryLoading(true);
     setHistoryError(null);
@@ -249,28 +259,54 @@ export default function InviteEarnPage() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from("referrals")
-      .select("id, referee_first_name, referee_last_name, reward_amount, created_at")
-      .eq("referrer_id", user.id)
-      .eq("referral_claim", true)
-      .order("created_at", { ascending: false });
+    const [signupResult, commissionResult] = await Promise.all([
+      supabase
+        .from("referrals")
+        .select("id, referee_first_name, referee_last_name, reward_amount, created_at")
+        .eq("referrer_id", user.id)
+        .eq("referral_claim", true)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("referral_purchase_commissions")
+        .select("id, plan_name, commission_amount, created_at")
+        .eq("referrer_id", user.id)
+        .eq("claimed", true)
+        .order("created_at", { ascending: false })
+    ]);
 
-    if (error) {
-      setHistoryError(error.message);
+    if (signupResult.error) {
+      setHistoryError(signupResult.error.message);
+      setHistoryLoading(false);
+      return;
+    }
+    if (commissionResult.error) {
+      setHistoryError(commissionResult.error.message);
       setHistoryLoading(false);
       return;
     }
 
+    const signupRows: ClaimHistoryEntry[] = (signupResult.data ?? []).map((row) => ({
+      id: row.id,
+      refereeName:
+        [row.referee_first_name, row.referee_last_name].filter(Boolean).join(" ") ||
+        "Anonymous user",
+      rewardAmount: Number(row.reward_amount),
+      createdAt: row.created_at,
+      kind: "signup"
+    }));
+
+    const commissionRows: ClaimHistoryEntry[] = (commissionResult.data ?? []).map((row) => ({
+      id: row.id,
+      refereeName: row.plan_name ? `${row.plan_name} purchase` : "Plan purchase",
+      rewardAmount: Number(row.commission_amount),
+      createdAt: row.created_at,
+      kind: "purchase"
+    }));
+
     setHistoryRows(
-      (data ?? []).map((row) => ({
-        id: row.id,
-        refereeName:
-          [row.referee_first_name, row.referee_last_name].filter(Boolean).join(" ") ||
-          "Anonymous user",
-        rewardAmount: Number(row.reward_amount),
-        createdAt: row.created_at
-      }))
+      [...signupRows, ...commissionRows].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      )
     );
     setHistoryLoading(false);
   }
@@ -594,6 +630,7 @@ export default function InviteEarnPage() {
                         {entry.refereeName}
                       </span>
                       <span className="text-xs text-white/50">
+                        {entry.kind === "purchase" ? "Purchase commission" : "Signup reward"} ·{" "}
                         {new Date(entry.createdAt).toLocaleString(undefined, {
                           year: "numeric",
                           month: "short",

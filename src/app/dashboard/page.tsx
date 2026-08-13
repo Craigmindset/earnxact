@@ -1,24 +1,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import {
-  MdAttachMoney,
   MdBolt,
   MdCardGiftcard,
   MdChecklist,
-  MdEventAvailable,
   MdFlag,
   MdOndemandVideo,
   MdTrendingUp
 } from "react-icons/md";
+import DashboardStats from "@/components/dashboard/DashboardStats";
 import WalletBalanceStat from "@/components/dashboard/WalletBalanceStat";
-import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { createClient } from "@/lib/supabase/server";
-
-const STATS = [
-  { label: "Today's earnings", value: `${CURRENCY_SYMBOL}0.00`, icon: MdAttachMoney },
-  { label: "Tasks completed", value: "0", icon: MdChecklist },
-  { label: "Check-in streak", value: "0 days", icon: MdEventAvailable }
-] as const;
 
 const QUICK_ACTIONS = [
   {
@@ -127,18 +119,7 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <WalletBalanceStat />
-        {STATS.map(({ label, value, icon: Icon }) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-white/10 bg-white/5 p-4"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--brand-gold)]/15 text-[var(--brand-gold)]">
-              <Icon className="text-lg" />
-            </div>
-            <div className="mt-3 text-lg font-semibold text-white">{value}</div>
-            <div className="text-xs text-white/60">{label}</div>
-          </div>
-        ))}
+        <DashboardStats />
       </div>
 
       <div>

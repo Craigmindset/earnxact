@@ -145,6 +145,32 @@ export type ReferralRow = {
 };
 
 /**
+ * One row per membership-plan purchase made by a referred user, awarding
+ * the referrer a 10% commission — separate from ReferralRow (the one-time
+ * ₦50 signup reward) since a referee can purchase/upgrade multiple times.
+ * Written exclusively by apply_membership_payment(); claimed via
+ * claim_referral_balance() alongside the signup-reward ledger.
+ */
+export type ReferralPurchaseCommissionRow = {
+  id: string;
+  /** FK → user_profile.user_id — the user who receives the commission. */
+  referrer_id: string;
+  /** FK → user_profile.user_id — the user who made the purchase. */
+  referee_id: string;
+  /** FK → membership_plans.id — the plan that was purchased. */
+  membership_plan_id: string | null;
+  plan_name: string | null;
+  purchase_amount: number;
+  /** 10% of purchase_amount. */
+  commission_amount: number;
+  /** The Paystack payment reference this commission was earned from. Unique. */
+  reference: string;
+  /** True once this commission has been claimed via claim_referral_balance(). */
+  claimed: boolean;
+  created_at: string;
+};
+
+/**
  * Denormalized, realtime-friendly summary row: one per user, updated
  * transactionally by handle_new_user() / claim_referral_balance(). Never
  * written to directly by clients — used to power live referral stats on
@@ -347,6 +373,13 @@ export type Database = {
         Insert: Omit<ReferralDataRow, "created_at" | "updated_at" | "users_referred" | "referral_balance" | "last_claim_date"> &
           Partial<Pick<ReferralDataRow, "created_at" | "updated_at" | "users_referred" | "referral_balance" | "last_claim_date">>;
         Update: Partial<Omit<ReferralDataRow, "user_id">>;
+        Relationships: [];
+      };
+      referral_purchase_commissions: {
+        Row: ReferralPurchaseCommissionRow;
+        Insert: Omit<ReferralPurchaseCommissionRow, "id" | "created_at" | "claimed"> &
+          Partial<Pick<ReferralPurchaseCommissionRow, "id" | "created_at" | "claimed">>;
+        Update: Partial<Omit<ReferralPurchaseCommissionRow, "id">>;
         Relationships: [];
       };
       daily_checkins: {

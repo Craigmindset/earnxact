@@ -254,11 +254,6 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
         </div>
         <div className="mt-1 text-xl font-semibold">EarnXact</div>
         <div className="mt-1 text-sm text-white/70">Do exactly, earn exactly</div>
-        {referralCode ? (
-          <div className="mt-3 rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/10 px-3 py-2 text-xs text-[var(--brand-gold)]">
-            You were invited with code <span className="font-semibold">{referralCode}</span> — your friend gets a ₦50 bonus once you sign up.
-          </div>
-        ) : null}
       </div>
 
       <div className="mb-5 grid grid-cols-2 overflow-hidden rounded-lg border border-white/10 bg-black/30">
@@ -336,10 +331,11 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
 
             <input
               value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
               required
               autoComplete="tel-national"
               inputMode="numeric"
+              maxLength={11}
               placeholder="Phone number"
               className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
             />
