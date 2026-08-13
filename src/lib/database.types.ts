@@ -171,6 +171,33 @@ export type ReferralPurchaseCommissionRow = {
 };
 
 /**
+ * One row per membership-plan purchase made by a referred user's OWN
+ * referral (a "2nd level" sub-referral) — awards the grandparent user a 5%
+ * commission on top of the direct referrer's 10% (ReferralPurchaseCommissionRow).
+ * Written exclusively by apply_membership_payment() alongside the 10% row.
+ * No separate claim step, same as ReferralPurchaseCommissionRow.
+ */
+export type ReferralSubCommissionRow = {
+  id: string;
+  /** FK → user_profile.user_id — the user who receives the 5% sub-referral commission. */
+  grandparent_id: string;
+  /** FK → user_profile.user_id — the buyer's direct referrer (the grandparent's referral). */
+  referrer_id: string;
+  /** FK → user_profile.user_id — the user who made the purchase. */
+  referee_id: string;
+  /** FK → membership_plans.id — the plan that was purchased. */
+  membership_plan_id: string | null;
+  plan_name: string | null;
+  purchase_amount: number;
+  /** 5% of purchase_amount. */
+  commission_amount: number;
+  /** The Paystack payment reference this commission was earned from. Unique. */
+  reference: string;
+  claimed: boolean;
+  created_at: string;
+};
+
+/**
  * Denormalized, realtime-friendly summary row: one per user, updated
  * transactionally by handle_new_user() / claim_referral_balance(). Never
  * written to directly by clients — used to power live referral stats on
@@ -417,6 +444,13 @@ export type Database = {
         Insert: Omit<ReferralPurchaseCommissionRow, "id" | "created_at" | "claimed"> &
           Partial<Pick<ReferralPurchaseCommissionRow, "id" | "created_at" | "claimed">>;
         Update: Partial<Omit<ReferralPurchaseCommissionRow, "id">>;
+        Relationships: [];
+      };
+      referral_sub_commissions: {
+        Row: ReferralSubCommissionRow;
+        Insert: Omit<ReferralSubCommissionRow, "id" | "created_at" | "claimed"> &
+          Partial<Pick<ReferralSubCommissionRow, "id" | "created_at" | "claimed">>;
+        Update: Partial<Omit<ReferralSubCommissionRow, "id">>;
         Relationships: [];
       };
       daily_checkins: {

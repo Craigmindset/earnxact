@@ -40,16 +40,17 @@ type ReferralStats = {
   lastClaimDate: string | null;
 };
 
-// One row per claimed referral reward - either a flat signup reward
-// (public.referrals, referral_claim = true) or a 10% purchase commission
-// (public.referral_purchase_commissions, claimed = true) - merged and
-// sorted newest first.
+// One row per claimed referral reward - a flat signup reward
+// (public.referrals, referral_claim = true), a 10% direct purchase
+// commission (public.referral_purchase_commissions, claimed = true), or a
+// 5% sub-referral (2nd level) commission (public.referral_sub_commissions,
+// claimed = true) - merged and sorted newest first.
 type ClaimHistoryEntry = {
   id: string;
   refereeName: string;
   rewardAmount: number;
   createdAt: string;
-  kind: "signup" | "purchase";
+  kind: "signup" | "purchase" | "sub";
 };
 
 export default function InviteEarnPage() {
@@ -235,14 +236,16 @@ export default function InviteEarnPage() {
     }
   }
 
-  // Loads this user's referral earnings history, merging two ledgers:
+  // Loads this user's referral earnings history, merging three ledgers:
   // - public.referrals (flat N50 signup rewards) - only rows the user has
   //   actually claimed via the "Claim" button (referral_claim = true).
-  // - public.referral_purchase_commissions (10% purchase commissions) -
-  //   these are auto-credited straight to wallet_balance the moment a
-  //   referral purchases a plan (see apply_membership_payment()), so every
-  //   row here is already settled (claimed = true from creation) and shows
-  //   up immediately, with no separate claim step.
+  // - public.referral_purchase_commissions (10% direct purchase
+  //   commissions) and public.referral_sub_commissions (5% sub-referral /
+  //   2nd level commissions) - both are auto-credited straight to
+  //   wallet_balance the moment a referral (or a referral's referral)
+  //   purchases a plan (see apply_membership_payment()), so every row here
+  //   is already settled (claimed = true from creation) and shows up
+  //   immediately, with no separate claim step.
   // Sorted newest first.
   async function loadHistory() {
     setHistoryLoading(true);
@@ -259,7 +262,7 @@ export default function InviteEarnPage() {
       return;
     }
 
-    const [signupResult, commissionResult] = await Promise.all([
+    const [signupResult, commissionResult, subCommissionResult] = await Promise.all([
       supabase
         .from("referrals")
         .select("id, referee_first_name, referee_last_name, reward_amount, created_at")
@@ -271,6 +274,12 @@ export default function InviteEarnPage() {
         .select("id, plan_name, commission_amount, created_at")
         .eq("referrer_id", user.id)
         .eq("claimed", true)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("referral_sub_commissions")
+        .select("id, plan_name, commission_amount, created_at")
+        .eq("grandparent_id", user.id)
+        .eq("claimed", true)
         .order("created_at", { ascending: false })
     ]);
 
@@ -281,6 +290,11 @@ export default function InviteEarnPage() {
     }
     if (commissionResult.error) {
       setHistoryError(commissionResult.error.message);
+      setHistoryLoading(false);
+      return;
+    }
+    if (subCommissionResult.error) {
+      setHistoryError(subCommissionResult.error.message);
       setHistoryLoading(false);
       return;
     }
@@ -303,8 +317,16 @@ export default function InviteEarnPage() {
       kind: "purchase"
     }));
 
+    const subCommissionRows: ClaimHistoryEntry[] = (subCommissionResult.data ?? []).map((row) => ({
+      id: row.id,
+      refereeName: row.plan_name ? `${row.plan_name} purchase` : "Plan purchase",
+      rewardAmount: Number(row.commission_amount),
+      createdAt: row.created_at,
+      kind: "sub"
+    }));
+
     setHistoryRows(
-      [...signupRows, ...commissionRows].sort(
+      [...signupRows, ...commissionRows, ...subCommissionRows].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       )
     );
@@ -521,6 +543,7 @@ export default function InviteEarnPage() {
         </div>
       </div>
 
+      {/* Referral tier cards (Tier 1 - Tier 8) temporarily disabled per request.
       <div className="space-y-4">
         <h2 className="text-sm font-semibold text-white md:text-base">
           Reach the next tier to earn a higher commission from your referral.
@@ -576,14 +599,14 @@ export default function InviteEarnPage() {
           })}
         </div>
       </div>
+      */}
 
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-xs leading-relaxed text-white/60 md:text-sm">
-        You earn <strong className="text-white">5%</strong> of the{" "}
-        <strong className="text-white">cashout amount</strong> (USD) when a
-        referred friend&apos;s withdrawal is completed successfully (paid
-        out). Pending requests do not earn referral credit. If they cancel
-        before completion, no referral credit applies. If a bonus was issued
-        in error, it may be reversed. Self-referrals are not allowed.
+        You earn <strong className="text-white">10%</strong> of the{" "}
+        <strong className="text-white">EarnXact membership plan signup fee</strong>{" "}
+        (NGN) when you refer a user, plus a{" "}
+        <strong className="text-white">5%</strong> sub-referral bonus when
+        that user refers someone else.
       </div>
 
       {showHistory && (
@@ -630,7 +653,12 @@ export default function InviteEarnPage() {
                         {entry.refereeName}
                       </span>
                       <span className="text-xs text-white/50">
-                        {entry.kind === "purchase" ? "Purchase commission" : "Signup reward"} ·{" "}
+                        {entry.kind === "purchase"
+                          ? "Purchase commission"
+                          : entry.kind === "sub"
+                          ? "Sub-referral bonus"
+                          : "Signup reward"}{" "}
+                        ·{" "}
                         {new Date(entry.createdAt).toLocaleString(undefined, {
                           year: "numeric",
                           month: "short",
