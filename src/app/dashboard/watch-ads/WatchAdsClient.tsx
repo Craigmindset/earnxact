@@ -1101,6 +1101,8 @@ import {
   MdTimer,
   MdCheckCircle,
   MdInfo,
+  MdVolumeUp,
+  MdVolumeOff,
 } from "react-icons/md";
 import { claimAdReward } from "./actions";
 import { formatCurrency } from "@/lib/currency";
@@ -1300,6 +1302,7 @@ function VideoAdPlayer({
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [liveAdTitle, setLiveAdTitle] = useState<string | null>(null);
   const [playerSize, setPlayerSize] = useState({ width: 640, height: 360 });
+  const [isMuted, setIsMuted] = useState(true);
 
   const onCompleteRef = useRef(onComplete);
   const onNoFillRef = useRef(onNoFill);
@@ -1308,6 +1311,7 @@ function VideoAdPlayer({
   const sourceIndexRef = useRef(0);
   const retryCountRef = useRef(0);
   const hasStartedRef = useRef(false);
+  const isMutedRef = useRef(true);
 
   const adsManagerRef = useRef<any>(null);
   const adsLoaderRef = useRef<any>(null);
@@ -1316,6 +1320,7 @@ function VideoAdPlayer({
 
   onCompleteRef.current = onComplete;
   onNoFillRef.current = onNoFill;
+  isMutedRef.current = isMuted;
 
   const addDebug = useCallback((message: string) => {
     debugLog(message);
@@ -1339,7 +1344,7 @@ function VideoAdPlayer({
       const el = adContainerRef.current;
       if (!el) return;
       const width = Math.max(el.clientWidth || 320, 320);
-      const height = Math.round(width * (9 / 16));
+      const height = Math.max(el.clientHeight || Math.round(width * (9 / 16)), 180);
       setPlayerSize({ width, height });
     };
 
@@ -1543,6 +1548,27 @@ function VideoAdPlayer({
     });
   }, [addDebug]);
 
+  const toggleMute = useCallback(() => {
+    const next = !isMutedRef.current;
+    isMutedRef.current = next;
+    setIsMuted(next);
+
+    try {
+      adsManagerRef.current?.setVolume(next ? 0 : 1);
+    } catch {}
+
+    if (adContainerRef.current) {
+      adContainerRef.current.querySelectorAll("video").forEach((v) => {
+        try {
+          v.muted = next;
+          if (!next) v.volume = 1;
+        } catch {}
+      });
+    }
+
+    addDebug(`🔊 Mute toggled → ${next ? "muted" : "unmuted"}`);
+  }, [addDebug]);
+
   const handleSourceFailure = useCallback(() => {
     setLiveAdTitle(null);
     destroyAds();
@@ -1589,6 +1615,8 @@ function VideoAdPlayer({
     setStatus("loading");
     setLiveAdTitle(null);
     setRemainingTime(ad.duration_seconds);
+    isMutedRef.current = true;
+    setIsMuted(true);
     addDebug("📶 Status set to loading");
 
     try {
@@ -1731,13 +1759,15 @@ function VideoAdPlayer({
             // Force fresh measurement right before init
             const el = adContainerRef.current;
             const width = el ? Math.max(el.clientWidth, 320) : 640;
-            const height = el ? Math.round(width * 9 / 16) : 360;
+            const height = el
+              ? Math.max(el.clientHeight, Math.round(width * 9 / 16))
+              : 360;
 
             addDebug(`🛠️ Initializing AdsManager at ${width}×${height}`);
 
             try {
               adsManager.init(width, height, google.ima.ViewMode.NORMAL);
-              adsManager.setVolume(0);
+              adsManager.setVolume(isMutedRef.current ? 0 : 1);
 
               // Small delay helps some networks finish setting up the video element
               setTimeout(() => {
@@ -1846,7 +1876,7 @@ function VideoAdPlayer({
         <div className="relative">
           <div
             ref={adContainerRef}
-            className="ad-container relative w-full bg-black aspect-video max-h-[70vh] overflow-hidden"
+            className="ad-container relative w-full bg-black overflow-hidden h-[50vh] sm:h-auto sm:aspect-video max-h-[70vh]"
             style={{ minHeight: 200 }}
           >
             {status === "idle" && (
@@ -1929,6 +1959,23 @@ function VideoAdPlayer({
                 : `${Math.round(ad.reward_amount)} pts`}
             </span>
           </div>
+
+          {status === "playing" && (
+            <button
+              type="button"
+              onClick={toggleMute}
+              aria-label={isMuted ? "Unmute ad" : "Mute ad"}
+              className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black/85 active:scale-95"
+            >
+              {isMuted ? (
+                <>
+                  <MdVolumeOff className="text-base" /> Tap for sound
+                </>
+              ) : (
+                <MdVolumeUp className="text-base" />
+              )}
+            </button>
+          )}
 
           {process.env.NODE_ENV === "development" && (
             <button
