@@ -8,14 +8,19 @@ import {
   MdBolt,
   MdCampaign,
   MdCardGiftcard,
+  MdDeleteOutline,
   MdInbox,
-  MdNotifications
+  MdNotifications,
+  MdNotificationsActive,
+  MdVolumeOff,
+  MdVolumeUp
 } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { formatRelativeTime } from "@/lib/time";
 import { createClient } from "@/lib/supabase/client";
 import { useUserProfile } from "@/hooks/useUserProfile";
-import type { AdminNotificationRow, TransactionRow } from "@/lib/database.types";
+import { isNotificationSoundMuted, playNotificationChime, setNotificationSoundMuted } from "@/lib/sound";
+import type { AdminNotificationRow, TransactionRow, UserNotificationRow } from "@/lib/database.types";
 
 // Backend integration point:
 // - Personal activity comes straight from public.transactions (credited by
@@ -26,13 +31,20 @@ import type { AdminNotificationRow, TransactionRow } from "@/lib/database.types"
 //   supabase/migrations/0003_admin_notifications.sql). There's no admin
 //   dashboard for this yet - an admin posts one with:
 //     insert into public.admin_notifications (title, message) values ('Title', 'Message here.');
-// - Both tables are added to the supabase_realtime publication, so new
-//   activity/announcements appear instantly without a page refresh.
+// - Personal reminders (e.g. "Notify me" on /dashboard/wallet) come from
+//   public.user_notifications (see supabase/migrations/0010_notifications_and_reminders.sql).
+// - All three tables are added to the supabase_realtime publication, so new
+//   activity/announcements/reminders appear instantly without a page refresh.
+// - "Delete"/"Clear" never removes the underlying transactions/admin_notifications
+//   row (financial/shared records must keep an audit trail) - it just adds a
+//   row to public.notification_dismissals so that item is hidden for this
+//   user going forward.
 
 type FeedFilter = "all" | "activity" | "announcements";
 
 type FeedItem =
   | { kind: "announcement"; id: string; created_at: string; title: string; message: string }
+  | { kind: "personal"; id: string; created_at: string; title: string; message: string }
   | {
       kind: "activity";
       id: string;
@@ -42,6 +54,10 @@ type FeedItem =
       status: TransactionRow["status"];
       description: string | null;
     };
+
+function itemKey(item: FeedItem): string {
+  return `${item.kind}:${item.id}`;
+}
 
 const TYPE_META: Record<
   TransactionRow["type"],
@@ -88,8 +104,20 @@ const FILTERS: { id: FeedFilter; label: string }[] = [
 export default function NotificationsPage() {
   const { userId } = useUserProfile();
   const [items, setItems] = useState<FeedItem[]>([]);
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FeedFilter>("all");
+  const [soundMuted, setSoundMuted] = useState(false);
+
+  useEffect(() => {
+    setSoundMuted(isNotificationSoundMuted());
+  }, []);
+
+  function toggleSound() {
+    const next = !soundMuted;
+    setSoundMuted(next);
+    setNotificationSoundMuted(next);
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -99,26 +127,46 @@ export default function NotificationsPage() {
     const supabase = createClient();
 
     async function load() {
-      const [{ data: transactions }, { data: announcements }] = await Promise.all([
-        supabase
-          .from("transactions")
-          .select("id, type, amount, status, description, reference, created_at")
-          .eq("user_id", uid)
-          .order("created_at", { ascending: false })
-          .limit(50),
-        supabase
-          .from("admin_notifications")
-          .select("id, title, message, created_at")
-          .eq("is_active", true)
-          .order("created_at", { ascending: false })
-          .limit(50)
-      ]);
+      // Fires any "notify me" reminder that's due for this user (see
+      // /dashboard/wallet) before loading the feed, so it shows up immediately.
+      await supabase.rpc("claim_due_withdrawal_reminders");
+
+      const [{ data: transactions }, { data: announcements }, { data: personal }, { data: dismissals }] =
+        await Promise.all([
+          supabase
+            .from("transactions")
+            .select("id, type, amount, status, description, reference, created_at")
+            .eq("user_id", uid)
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase
+            .from("admin_notifications")
+            .select("id, title, message, created_at")
+            .eq("is_active", true)
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase
+            .from("user_notifications")
+            .select("id, title, message, created_at")
+            .order("created_at", { ascending: false })
+            .limit(50),
+          supabase.from("notification_dismissals").select("item_key")
+        ]);
 
       if (cancelled) return;
+
+      const dismissedSet = new Set((dismissals ?? []).map((row) => row.item_key));
 
       const merged: FeedItem[] = [
         ...(announcements ?? []).map((row) => ({
           kind: "announcement" as const,
+          id: row.id,
+          created_at: row.created_at,
+          title: row.title,
+          message: row.message
+        })),
+        ...(personal ?? []).map((row) => ({
+          kind: "personal" as const,
           id: row.id,
           created_at: row.created_at,
           title: row.title,
@@ -133,8 +181,11 @@ export default function NotificationsPage() {
           status: row.status,
           description: row.description
         }))
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      ]
+        .filter((item) => !dismissedSet.has(itemKey(item)))
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+      setDismissedKeys(dismissedSet);
       setItems(merged);
       setLoading(false);
     }
@@ -148,6 +199,7 @@ export default function NotificationsPage() {
         { event: "INSERT", schema: "public", table: "transactions", filter: `user_id=eq.${uid}` },
         (payload) => {
           const row = payload.new as TransactionRow;
+          playNotificationChime();
           setItems((prev) => [
             {
               kind: "activity",
@@ -168,8 +220,21 @@ export default function NotificationsPage() {
         (payload) => {
           const row = payload.new as AdminNotificationRow;
           if (!row.is_active) return;
+          playNotificationChime();
           setItems((prev) => [
             { kind: "announcement", id: row.id, created_at: row.created_at, title: row.title, message: row.message },
+            ...prev
+          ]);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "user_notifications", filter: `user_id=eq.${uid}` },
+        (payload) => {
+          const row = payload.new as UserNotificationRow;
+          playNotificationChime();
+          setItems((prev) => [
+            { kind: "personal", id: row.id, created_at: row.created_at, title: row.title, message: row.message },
             ...prev
           ]);
         }
@@ -182,10 +247,38 @@ export default function NotificationsPage() {
     };
   }, [userId]);
 
+  async function dismissItem(item: FeedItem) {
+    if (!userId) return;
+    const key = itemKey(item);
+
+    setItems((prev) => prev.filter((existing) => itemKey(existing) !== key));
+    setDismissedKeys((prev) => new Set(prev).add(key));
+
+    const supabase = createClient();
+    await supabase.from("notification_dismissals").insert({ user_id: userId, item_key: key });
+  }
+
+  async function clearVisible() {
+    if (!userId || filteredItems.length === 0) return;
+
+    const toDismiss = filteredItems.map((item) => ({ user_id: userId, item_key: itemKey(item) }));
+    const dismissedNow = new Set(toDismiss.map((row) => row.item_key));
+
+    setItems((prev) => prev.filter((item) => !dismissedNow.has(itemKey(item))));
+    setDismissedKeys((prev) => {
+      const next = new Set(prev);
+      dismissedNow.forEach((key) => next.add(key));
+      return next;
+    });
+
+    const supabase = createClient();
+    await supabase.from("notification_dismissals").insert(toDismiss);
+  }
+
   const filteredItems = useMemo(() => {
     if (filter === "all") return items;
     if (filter === "activity") return items.filter((item) => item.kind === "activity");
-    return items.filter((item) => item.kind === "announcement");
+    return items.filter((item) => item.kind === "announcement" || item.kind === "personal");
   }, [items, filter]);
 
   return (
@@ -209,21 +302,45 @@ export default function NotificationsPage() {
         </p>
       </div>
 
-      <div className="flex gap-2">
-        {FILTERS.map((option) => (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2">
+          {FILTERS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setFilter(option.id)}
+              className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                filter === option.id
+                  ? "border-[var(--brand-gold)] bg-[var(--brand-gold)]/10 text-[var(--brand-gold)]"
+                  : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
-            key={option.id}
             type="button"
-            onClick={() => setFilter(option.id)}
-            className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
-              filter === option.id
-                ? "border-[var(--brand-gold)] bg-[var(--brand-gold)]/10 text-[var(--brand-gold)]"
-                : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
-            }`}
+            onClick={toggleSound}
+            aria-label={soundMuted ? "Unmute notification sound" : "Mute notification sound"}
+            title={soundMuted ? "Unmute notification sound" : "Mute notification sound"}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/60 transition hover:bg-white/10 hover:text-white"
           >
-            {option.label}
+            {soundMuted ? <MdVolumeOff className="text-base" /> : <MdVolumeUp className="text-base" />}
           </button>
-        ))}
+
+          {filteredItems.length > 0 && (
+            <button
+              type="button"
+              onClick={clearVisible}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -252,14 +369,56 @@ export default function NotificationsPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <span className="text-sm font-semibold text-white">{item.title}</span>
-                      <span className="shrink-0 text-[11px] text-white/40">
-                        {formatRelativeTime(new Date(item.created_at))}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="text-[11px] text-white/40">
+                          {formatRelativeTime(new Date(item.created_at))}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => dismissItem(item)}
+                          aria-label="Delete notification"
+                          className="text-white/30 transition hover:text-rose-400"
+                        >
+                          <MdDeleteOutline className="text-base" />
+                        </button>
+                      </div>
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-white/60">{item.message}</p>
                     <span className="mt-2 inline-flex rounded-full border border-[var(--brand-gold)]/20 bg-[var(--brand-gold)]/10 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-gold)]">
                       Announcement
                     </span>
+                  </div>
+                </div>
+              );
+            }
+
+            if (item.kind === "personal") {
+              return (
+                <div
+                  key={`personal-${item.id}`}
+                  className="flex gap-4 rounded-2xl border border-sky-500/20 bg-sky-500/5 p-4"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-400">
+                    <MdNotificationsActive className="text-xl" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-sm font-semibold text-white">{item.title}</span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="text-[11px] text-white/40">
+                          {formatRelativeTime(new Date(item.created_at))}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => dismissItem(item)}
+                          aria-label="Delete notification"
+                          className="text-white/30 transition hover:text-rose-400"
+                        >
+                          <MdDeleteOutline className="text-base" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-white/60">{item.message}</p>
                   </div>
                 </div>
               );
@@ -282,9 +441,19 @@ export default function NotificationsPage() {
                     <span className="text-sm font-semibold text-white">
                       {item.description || meta.label}
                     </span>
-                    <span className="shrink-0 text-[11px] text-white/40">
-                      {formatRelativeTime(new Date(item.created_at))}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-[11px] text-white/40">
+                        {formatRelativeTime(new Date(item.created_at))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => dismissItem(item)}
+                        aria-label="Delete notification"
+                        className="text-white/30 transition hover:text-rose-400"
+                      >
+                        <MdDeleteOutline className="text-base" />
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <span className={`text-sm font-semibold ${isNegative ? "text-rose-400" : "text-emerald-400"}`}>

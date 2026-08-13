@@ -68,9 +68,12 @@ export default function DashboardHeader({
           )}
         </span>
 
-        <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-[var(--brand-gold)]">
+        <Link
+          href="/dashboard/wallet"
+          className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-[var(--brand-gold)] transition hover:bg-white/10"
+        >
           {walletBalanceDisplay}
-        </span>
+        </Link>
 
         <Link
           href="/dashboard/support"

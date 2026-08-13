@@ -14,12 +14,13 @@ import {
   MdClose,
   MdErrorOutline,
   MdInfoOutline,
-  MdLock
+  MdLock,
+  MdNotificationsActive
 } from "react-icons/md";
 import { FaBitcoin, FaPaypal } from "react-icons/fa6";
 import { NIGERIAN_BANKS } from "@/components/dashboard/nigerian-banks";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
-import { formatRelativeTime } from "@/lib/time";
+import { formatRelativeTime, getNextWithdrawalWindow } from "@/lib/time";
 import { createClient } from "@/lib/supabase/client";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import cryptoAnimation from "../../../../public/images/crypto.json";
@@ -33,17 +34,30 @@ const PAYMENT_METHODS: { id: PaymentMethodId; label: string; icon: typeof MdAcco
   { id: "gift", label: "Gift Card", icon: MdCardGiftcard }
 ];
 
-// Backend integration point:
-// - Replace with a real live feed of recent payouts (API/websocket),
-//   masked for privacy as done here.
-const CASHOUT_FEED = [
-  { email: "mat***@gmail.com", amount: 200000, minutesAgo: 2 },
-  { email: "jan***@yahoo.com", amount: 150000, minutesAgo: 26 },
-  { email: "dav***@outlook.com", amount: 320000, minutesAgo: 190 },
-  { email: "chi***@gmail.com", amount: 95000, minutesAgo: 540 },
-  { email: "ken***@gmail.com", amount: 410000, minutesAgo: 1500 },
-  { email: "ama***@yahoo.com", amount: 60000, minutesAgo: 4000 }
-];
+type CashoutEntry = { email: string; amount: number; createdAt: number };
+
+// Live countdown to the next Friday withdrawal window (Africa/Lagos) - see
+// create_withdrawal_request() in supabase/migrations/0008_withdrawal_limits.sql.
+function useWithdrawalCountdown() {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const { isFridayToday, targetTimestampMs } = getNextWithdrawalWindow(new Date(now));
+  const remainingSeconds = Math.max(0, Math.floor((targetTimestampMs - now) / 1000));
+
+  return {
+    isFridayToday,
+    targetTimestampMs,
+    days: Math.floor(remainingSeconds / 86400),
+    hours: Math.floor((remainingSeconds % 86400) / 3600),
+    minutes: Math.floor((remainingSeconds % 3600) / 60),
+    seconds: remainingSeconds % 60
+  };
+}
 
 export default function WalletPage() {
   const { userId, walletBalance, loading: loadingWallet } = useUserProfile();
@@ -53,6 +67,7 @@ export default function WalletPage() {
   const [accountNumber, setAccountNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [amount, setAmount] = useState("");
   const [pin, setPin] = useState(["", "", "", ""]);
   const pinRefs = useRef<Array<HTMLInputElement | null>>([]);
 
@@ -64,6 +79,100 @@ export default function WalletPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  // Real "Cashout Board" feed - powered by get_recent_cashouts() (supabase/
+  // migrations/0009_recent_cashouts_feed.sql), a SECURITY DEFINER function
+  // that returns masked, cross-user withdrawal activity from public.transactions
+  // (RLS on transactions only allows a user to see their own rows, so this
+  // narrow function is the deliberate exception). Re-fetched immediately
+  // whenever a new withdrawal transaction is inserted anywhere, via realtime.
+  const [cashoutFeed, setCashoutFeed] = useState<CashoutEntry[]>([]);
+  const countdown = useWithdrawalCountdown();
+
+  // "Notify me" - lets a user opt in to a personal reminder (posted to
+  // /dashboard/notifications) for the moment the Friday withdrawal window
+  // next opens. See request_withdrawal_reminder()/claim_due_withdrawal_reminders()
+  // in supabase/migrations/0010_notifications_and_reminders.sql.
+  const [reminderRequested, setReminderRequested] = useState(false);
+  const [requestingReminder, setRequestingReminder] = useState(false);
+
+  const targetDateLabel = new Date(countdown.targetTimestampMs).toLocaleString("en-NG", {
+    timeZone: "Africa/Lagos",
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let cancelled = false;
+    const supabase = createClient();
+
+    // Fires any reminder that's due for THIS user (only actually does
+    // anything if it's Friday and they have a pending request) then checks
+    // whether a reminder request is still standing, to reflect it in the UI.
+    supabase
+      .rpc("claim_due_withdrawal_reminders")
+      .then(() => supabase.from("withdrawal_notify_requests").select("id").maybeSingle())
+      .then(({ data }) => {
+        if (!cancelled) setReminderRequested(Boolean(data));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  async function handleNotifyMeClick() {
+    if (requestingReminder || reminderRequested) return;
+
+    setRequestingReminder(true);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("request_withdrawal_reminder");
+    setRequestingReminder(false);
+
+    if (!error) {
+      setReminderRequested(true);
+    }
+  }
+
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    async function loadCashoutFeed() {
+      const { data } = await supabase.rpc("get_recent_cashouts", { p_limit: 12 });
+      if (!cancelled && data) {
+        setCashoutFeed(
+          data.map((row) => ({
+            email: row.masked_email,
+            amount: row.amount,
+            createdAt: new Date(row.created_at).getTime()
+          }))
+        );
+      }
+    }
+
+    loadCashoutFeed();
+
+    const channel = supabase
+      .channel("cashout-board")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "transactions", filter: "type=eq.withdrawal" },
+        () => loadCashoutFeed()
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -105,8 +214,13 @@ export default function WalletPage() {
     setSubmitError(null);
 
     const supabase = createClient();
+    // The withdrawal amount/day-of-week/min-max limits are all validated
+    // server-side inside create_withdrawal_request() (supabase/migrations/
+    // 0008_withdrawal_limits.sql) - any rule violation comes back as
+    // error.message here and is surfaced via submitError below, rather than
+    // being pre-checked/labeled in this UI.
     const { error } = await supabase.rpc("create_withdrawal_request", {
-      p_amount: walletBalance,
+      p_amount: Number(amount),
       p_bank_name: bankName,
       p_account_name: accountName,
       p_account_number: accountNumber,
@@ -123,6 +237,7 @@ export default function WalletPage() {
     setAccountNumber("");
     setBankName("");
     setAccountName("");
+    setAmount("");
     setPin(["", "", "", ""]);
     setSubmitSuccess(true);
     setActiveModal(null);
@@ -146,6 +261,11 @@ export default function WalletPage() {
   }
 
   const isBankFormValid =
+    amount.trim().length > 0 &&
+    Number(amount) > 0 &&
+    Number(amount) <= walletBalance &&
+    Number(amount) >= 10000 &&
+    Number(amount) <= 200000 &&
     accountNumber.trim().length >= 10 &&
     bankName !== "" &&
     accountName.trim().length > 0 &&
@@ -198,6 +318,36 @@ export default function WalletPage() {
               {CURRENCY_SYMBOL}
               {loadingWallet ? "0.00" : walletBalance.toFixed(2)}
             </div>
+
+            <p className="mt-2 text-xs text-white/50">
+              {countdown.isFridayToday ? (
+                <>
+                  Withdrawals are open today - window closes in{" "}
+                  {countdown.days > 0 ? `${countdown.days}d ` : ""}
+                  {countdown.hours}h {countdown.minutes}m {countdown.seconds}s{" "}
+                  (by {targetDateLabel}).
+                </>
+              ) : (
+                <>
+                  Next withdrawal window opens in{" "}
+                  {countdown.days > 0 ? `${countdown.days}d ` : ""}
+                  {countdown.hours}h {countdown.minutes}m {countdown.seconds}s{" "}
+                  ({targetDateLabel}).
+                </>
+              )}
+            </p>
+
+            {!countdown.isFridayToday && (
+              <button
+                type="button"
+                onClick={handleNotifyMeClick}
+                disabled={requestingReminder || reminderRequested}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-gold)]/30 bg-[var(--brand-gold)]/10 px-3 py-1.5 text-xs font-semibold text-[var(--brand-gold)] transition hover:bg-[var(--brand-gold)]/20 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <MdNotificationsActive className="text-sm" />
+                {reminderRequested ? "We'll notify you" : "Notify me"}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -267,25 +417,31 @@ export default function WalletPage() {
         </h2>
 
         <div className="relative mt-4 h-52 overflow-hidden">
-          <ul className="animate-scroll-up absolute inset-x-0 top-0 space-y-3">
-            {[...CASHOUT_FEED, ...CASHOUT_FEED].map((entry, index) => (
-              <li
-                key={`${entry.email}-${index}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-xs sm:text-sm"
-              >
-                <div className="flex flex-col">
-                  <span className="text-white/70">{entry.email}</span>
-                  <span className="text-[10px] text-white/40">
-                    {formatRelativeTime(Date.now() - entry.minutesAgo * 60 * 1000)}
+          {cashoutFeed.length > 0 ? (
+            <ul className="animate-scroll-up absolute inset-x-0 top-0 space-y-3">
+              {[...cashoutFeed, ...cashoutFeed].map((entry, index) => (
+                <li
+                  key={`${entry.email}-${entry.createdAt}-${index}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-xs sm:text-sm"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-white/70">{entry.email}</span>
+                    <span className="text-[10px] text-white/40">
+                      {formatRelativeTime(entry.createdAt)}
+                    </span>
+                  </div>
+                  <span className="font-semibold text-[var(--brand-gold)]">
+                    cash out: {CURRENCY_SYMBOL}
+                    {entry.amount.toLocaleString()}
                   </span>
-                </div>
-                <span className="font-semibold text-[var(--brand-gold)]">
-                  cash out: {CURRENCY_SYMBOL}
-                  {entry.amount.toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-white/40">
+              No recent cashouts yet.
+            </div>
+          )}
         </div>
       </div>
 
@@ -316,6 +472,34 @@ export default function WalletPage() {
             </div>
 
             <div className="mt-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-white/60">
+                  Amount to Withdraw
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(event) =>
+                    setAmount(event.target.value.replace(/[^0-9.]/g, ""))
+                  }
+                  placeholder={`Available: ${CURRENCY_SYMBOL}${walletBalance.toFixed(2)}`}
+                  className="mt-1.5 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--brand-gold)]"
+                />
+                {amount.trim().length > 0 && Number(amount) > 0 && Number(amount) < 10000 && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-400">
+                    <MdErrorOutline className="shrink-0 text-sm" />
+                    The minimum withdrawal amount is {CURRENCY_SYMBOL}10,000.
+                  </p>
+                )}
+                {Number(amount) > 200000 && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-400">
+                    <MdErrorOutline className="shrink-0 text-sm" />
+                    The maximum withdrawal amount is {CURRENCY_SYMBOL}200,000.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="text-xs font-medium text-white/60">
                   Bank Account Number

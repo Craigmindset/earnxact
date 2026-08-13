@@ -300,6 +300,43 @@ export type WithdrawalRequestRow = {
   created_at: string;
 };
 
+/**
+ * Personal, per-user notification item (distinct from admin_notifications,
+ * which is a shared broadcast). Currently only ever written by
+ * request_withdrawal_reminder() / claim_due_withdrawal_reminders().
+ */
+export type UserNotificationRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  title: string;
+  message: string;
+  created_at: string;
+};
+
+/** One row per user with a standing "notify me when withdrawals open" request. */
+export type WithdrawalNotifyRequestRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  created_at: string;
+};
+
+/**
+ * Per-user "hide this from my feed" marker for /dashboard/notifications -
+ * `item_key` is a composite string like 'activity:<transactions.id>',
+ * 'announcement:<admin_notifications.id>' or 'personal:<user_notifications.id>'.
+ * Dismissing never deletes the underlying transactions/admin_notifications
+ * row - those are financial/shared records that must stay intact.
+ */
+export type NotificationDismissalRow = {
+  id: string;
+  /** FK → auth.users.id */
+  user_id: string;
+  item_key: string;
+  created_at: string;
+};
+
 // ─── Database shape (for the Supabase client generic) ─────────────────────────
 
 export type Database = {
@@ -423,6 +460,27 @@ export type Database = {
         Update: Partial<Omit<WithdrawalRequestRow, "id">>;
         Relationships: [];
       };
+      user_notifications: {
+        Row: UserNotificationRow;
+        Insert: Omit<UserNotificationRow, "id" | "created_at"> &
+          Partial<Pick<UserNotificationRow, "id" | "created_at">>;
+        Update: Partial<Omit<UserNotificationRow, "id">>;
+        Relationships: [];
+      };
+      withdrawal_notify_requests: {
+        Row: WithdrawalNotifyRequestRow;
+        Insert: Omit<WithdrawalNotifyRequestRow, "id" | "created_at"> &
+          Partial<Pick<WithdrawalNotifyRequestRow, "id" | "created_at">>;
+        Update: Partial<Omit<WithdrawalNotifyRequestRow, "id">>;
+        Relationships: [];
+      };
+      notification_dismissals: {
+        Row: NotificationDismissalRow;
+        Insert: Omit<NotificationDismissalRow, "id" | "created_at"> &
+          Partial<Pick<NotificationDismissalRow, "id" | "created_at">>;
+        Update: Partial<Omit<NotificationDismissalRow, "id">>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -483,6 +541,18 @@ export type Database = {
           p_pin: string;
         };
         Returns: { request_id: string; new_wallet_balance: number }[];
+      };
+      get_recent_cashouts: {
+        Args: { p_limit?: number };
+        Returns: { masked_email: string; amount: number; created_at: string }[];
+      };
+      request_withdrawal_reminder: {
+        Args: Record<string, never>;
+        Returns: undefined;
+      };
+      claim_due_withdrawal_reminders: {
+        Args: Record<string, never>;
+        Returns: undefined;
       };
       apply_membership_payment: {
         Args: { p_plan_id: string; p_reference: string; p_amount: number };
