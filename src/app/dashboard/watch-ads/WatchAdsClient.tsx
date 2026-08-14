@@ -1338,9 +1338,7 @@
 //   );
 // }
 
-
-
-"use client";
+ "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
@@ -1479,7 +1477,9 @@ interface Props {
   todayPoints: number;
 }
 
-type AdStatus = "idle" | "loading" | "playing" | "error" | "retrying";
+// "priming" = we've kicked off SDK preload but are waiting for a real tap
+// before touching AdDisplayContainer / AdsManager (see startAd()).
+type AdStatus = "priming" | "loading" | "playing" | "error" | "retrying";
 
 const debugLog = (message: string, data?: any) => {
   const timestamp = new Date().toISOString();
@@ -1547,13 +1547,21 @@ function VideoAdPlayer({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const adContainerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<AdStatus>("idle");
+  // Player starts in "priming": SDK is preloading but we have NOT yet
+  // touched AdDisplayContainer/AdsManager. We deliberately wait for a real
+  // tap (see the priming overlay in the JSX) so that initialize()/init()/
+  // start() all run synchronously inside a genuine user-gesture call stack.
+  // Doing this async (e.g. in a mount effect, after an awaited SDK load or
+  // ad request) is what causes browsers to silently reject autoplay and
+  // fall back to IMA's own black-screen + center play-icon UI.
+  const [status, setStatus] = useState<AdStatus>("priming");
   const [remainingTime, setRemainingTime] = useState(ad.duration_seconds);
   const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [liveAdTitle, setLiveAdTitle] = useState<string | null>(null);
   const [playerSize, setPlayerSize] = useState({ width: 640, height: 360 });
   const [isMuted, setIsMuted] = useState(true);
   const [showManualPlay, setShowManualPlay] = useState(false);
+  const [sdkReady, setSdkReady] = useState(false);
 
   const onCompleteRef = useRef(onComplete);
   const onNoFillRef = useRef(onNoFill);
@@ -1564,6 +1572,11 @@ function VideoAdPlayer({
   const hasStartedRef = useRef(false);
   const isMutedRef = useRef(true);
   const manualPlayCheckRef = useRef<NodeJS.Timeout | null>(null);
+  // Tracks which <video> element IMA is actually driving for the current
+  // ad, so forcePlayInternalVideos() doesn't blindly poke every <video>
+  // node a creative happens to inject (some networks ship 3-4 elements —
+  // preload buffers, companions, etc — that are intentionally paused).
+  const activeVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const adsManagerRef = useRef<any>(null);
   const adsLoaderRef = useRef<any>(null);
@@ -1704,6 +1717,7 @@ function VideoAdPlayer({
     adsManagerRef.current = null;
     adsLoaderRef.current = null;
     adDisplayContainerRef.current = null;
+    activeVideoRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -1748,12 +1762,16 @@ function VideoAdPlayer({
     return tag;
   }, [ad.vast_tag_url, addDebug]);
 
-  // Kick off IMA SDK loading as soon as the player mounts, so it's likely
-  // ready (or close to it) by the time startAd() actually needs it.
+  // Kick off IMA SDK loading as soon as the player mounts, so it's already
+  // ready by the time the user taps "Watch Ad". This has no user-gesture
+  // requirement, so it's safe to do eagerly/async.
   useEffect(() => {
     addDebug("Loading IMA SDK...");
     loadImaSdk()
-      .then(() => addDebug("✅ IMA SDK loaded successfully"))
+      .then(() => {
+        addDebug("✅ IMA SDK loaded successfully");
+        if (isMountedRef.current) setSdkReady(true);
+      })
       .catch(() => addDebug("❌ Failed to load IMA SDK"));
   }, [addDebug]);
 
@@ -1802,96 +1820,111 @@ function VideoAdPlayer({
   // the guaranteed fallback for browsers that block autoplay even when
   // the video is muted/primed correctly.
   const manualPlay = useCallback(() => {
-    if (!adContainerRef.current) return;
-    const videos = adContainerRef.current.querySelectorAll("video");
-    videos.forEach((video) => {
-      try {
-        video
-          .play()
-          .then(() => {
-            addDebug("✅ Manual play() resolved from user tap");
-            setShowManualPlay(false);
-          })
-          .catch((err) =>
-            addDebug(`❌ Manual play() REJECTED: ${err?.name || err}`),
-          );
-      } catch (err) {
-        addDebug(`❌ manualPlay threw: ${err}`);
-      }
-    });
+    const video = activeVideoRef.current;
+    if (!video) return;
+    try {
+      video
+        .play()
+        .then(() => {
+          addDebug("✅ Manual play() resolved from user tap");
+          setShowManualPlay(false);
+        })
+        .catch((err) =>
+          addDebug(`❌ Manual play() REJECTED: ${err?.name || err}`),
+        );
+    } catch (err) {
+      addDebug(`❌ manualPlay threw: ${err}`);
+    }
   }, [addDebug]);
 
-  // Force play any video IMA injects (fixes black screen), and arm a
-  // one-second check that reveals a real tap-to-play button if the browser
-  // is still refusing autoplay after priming + retries.
+  // Force play the single video IMA is actually driving (fixes black
+  // screen), and arm a check that reveals a real tap-to-play button if the
+  // browser is still refusing autoplay after priming + retries.
   const forcePlayInternalVideos = useCallback(() => {
     if (!adContainerRef.current) return;
 
-    const videos = adContainerRef.current.querySelectorAll("video");
+    const videos = Array.from(
+      adContainerRef.current.querySelectorAll("video"),
+    );
     addDebug(`🔍 forcePlayInternalVideos: found ${videos.length} <video> el(s)`);
 
-    videos.forEach((video, idx) => {
-      try {
-        if (!video.currentSrc && !video.src) return;
+    // Pick (or keep) the one video that actually has media loaded/loading.
+    // Networks like ExoClick can inject several <video> nodes (preload
+    // buffers, companions) that should NOT be force-played — doing so
+    // fights IMA's own state machine and is a common cause of a flashing
+    // black frame even when the "real" video is fine.
+    let target = activeVideoRef.current;
+    if (!target || !adContainerRef.current.contains(target)) {
+      target =
+        videos.find((v) => (v.currentSrc || v.src) && v.readyState >= 2) ||
+        videos.find((v) => v.currentSrc || v.src) ||
+        null;
+      activeVideoRef.current = target;
+    }
 
-        if (!video.dataset.diagAttached) {
-          video.dataset.diagAttached = "true";
+    if (!target) return;
 
+    const idx = videos.indexOf(target);
+
+    try {
+      if (!target.dataset.diagAttached) {
+        target.dataset.diagAttached = "true";
+
+        addDebug(
+          `🔍 video[${idx}] src=${target.currentSrc || target.src || "(none)"} ` +
+            `readyState=${target.readyState} networkState=${target.networkState} ` +
+            `paused=${target.paused} muted=${target.muted}`,
+        );
+
+        target.addEventListener("error", () => {
+          const err = target!.error;
           addDebug(
-            `🔍 video[${idx}] src=${video.currentSrc || video.src || "(none)"} ` +
-              `readyState=${video.readyState} networkState=${video.networkState} ` +
-              `paused=${video.paused} muted=${video.muted}`,
+            `❌ video[${idx}] error event: code=${err?.code} message=${err?.message || "(none)"} ` +
+              `networkState=${target!.networkState} readyState=${target!.readyState}`,
           );
-
-          video.addEventListener("error", () => {
-            const err = video.error;
-            addDebug(
-              `❌ video[${idx}] error event: code=${err?.code} message=${err?.message || "(none)"} ` +
-                `networkState=${video.networkState} readyState=${video.readyState}`,
-            );
-          });
-          video.addEventListener("stalled", () =>
-            addDebug(`⚠️ video[${idx}] stalled (network stalled while fetching)`),
-          );
-          video.addEventListener("waiting", () =>
-            addDebug(`⚠️ video[${idx}] waiting (buffering, not enough data)`),
-          );
-          video.addEventListener("loadedmetadata", () =>
-            addDebug(
-              `ℹ️ video[${idx}] loadedmetadata: ${video.videoWidth}×${video.videoHeight}, duration=${video.duration}`,
-            ),
-          );
-          video.addEventListener("playing", () => {
-            addDebug(`✅ video[${idx}] playing event fired (frame is actually rendering)`);
-            setShowManualPlay(false);
-          });
-        }
-
-        primeVideoElement(video);
-
-        if (video.paused) {
-          addDebug(`⚠️ video[${idx}] is paused — nudging playback as a fallback`);
-          video
-            .play()
-            .then(() => addDebug(`✅ video[${idx}] fallback play() resolved`))
-            .catch((err) =>
-              addDebug(`❌ video[${idx}] fallback play() REJECTED: ${err?.name || err}: ${err?.message || ""}`),
-            );
-        }
-      } catch (err) {
-        addDebug(`❌ video[${idx}] forcePlayInternalVideos threw: ${err}`);
+        });
+        target.addEventListener("stalled", () =>
+          addDebug(`⚠️ video[${idx}] stalled (network stalled while fetching)`),
+        );
+        target.addEventListener("waiting", () =>
+          addDebug(`⚠️ video[${idx}] waiting (buffering, not enough data)`),
+        );
+        target.addEventListener("loadedmetadata", () =>
+          addDebug(
+            `ℹ️ video[${idx}] loadedmetadata: ${target!.videoWidth}×${target!.videoHeight}, duration=${target!.duration}`,
+          ),
+        );
+        target.addEventListener("playing", () => {
+          addDebug(`✅ video[${idx}] playing event fired (frame is actually rendering)`);
+          setShowManualPlay(false);
+        });
       }
-    });
+
+      primeVideoElement(target);
+
+      if (target.paused) {
+        addDebug(`⚠️ video[${idx}] is paused — nudging playback as a fallback`);
+        target
+          .play()
+          .then(() => addDebug(`✅ video[${idx}] fallback play() resolved`))
+          .catch((err) =>
+            addDebug(`❌ video[${idx}] fallback play() REJECTED: ${err?.name || err}: ${err?.message || ""}`),
+          );
+      }
+    } catch (err) {
+      addDebug(`❌ video[${idx}] forcePlayInternalVideos threw: ${err}`);
+    }
 
     // If, after our retries, the video is STILL paused, the browser is
     // actively blocking programmatic autoplay — surface a real tap target
     // rather than silently looping forever.
     if (manualPlayCheckRef.current) clearTimeout(manualPlayCheckRef.current);
     manualPlayCheckRef.current = setTimeout(() => {
-      if (!adContainerRef.current || !isMountedRef.current) return;
-      const stillPaused = Array.from(
-        adContainerRef.current.querySelectorAll("video"),
-      ).some((v) => v.paused && (v.currentSrc || v.src));
+      if (!isMountedRef.current) return;
+      const stillPaused =
+        activeVideoRef.current &&
+        activeVideoRef.current.paused &&
+        (activeVideoRef.current.currentSrc || activeVideoRef.current.src);
       if (stillPaused) {
         addDebug("⚠️ Video still paused after retries — showing manual play button");
         setShowManualPlay(true);
@@ -1951,6 +1984,14 @@ function VideoAdPlayer({
 
   const startAdRef = useRef<() => void>(() => {});
 
+  // IMPORTANT: on the very first call, this function must be invoked
+  // directly inside a real click handler (see the "priming" overlay button
+  // below) so that AdDisplayContainer.initialize() / AdsManager.init() /
+  // AdsManager.start() all happen inside the same synchronous user-gesture
+  // call stack. Retries triggered by handleSourceFailure() are exempt —
+  // browsers only require the *first* unmuted/video-start attempt per
+  // gesture, and everything here stays muted until the user explicitly
+  // unmutes anyway.
   const startAd = useCallback(async () => {
     addDebug(
       `▶️ startAd() called (source ${sourceIndexRef.current + 1}/${ALL_SOURCES.length} [${labelForSource(ALL_SOURCES[sourceIndexRef.current])}])`,
@@ -2081,7 +2122,7 @@ function VideoAdPlayer({
 
             const finishAd = () => {
               addDebug("✅ Ad completed");
-              setStatus("idle");
+              setStatus("priming");
               setShowManualPlay(false);
               if (timerRef.current) {
                 clearInterval(timerRef.current);
@@ -2120,39 +2161,33 @@ function VideoAdPlayer({
               },
             );
 
-            // Force fresh measurement right before init
-            const el = adContainerRef.current;
-            const width = el ? Math.max(el.clientWidth, 320) : 640;
-            const height = el
-              ? Math.max(el.clientHeight, Math.round(width * 9 / 16))
-              : 360;
+            // Compute + apply sizing and start() inside the same
+            // requestAnimationFrame so both happen right before paint,
+            // as close to the original gesture / event chain as possible.
+            // (init() previously ran synchronously here and start() was
+            // deferred separately — keeping them in lockstep avoids IMA
+            // sizing itself against a container that hasn't settled yet,
+            // which can also manifest as a black/blank frame.)
+            requestAnimationFrame(() => {
+              try {
+                const el = adContainerRef.current;
+                const width = el ? Math.max(el.clientWidth, 320) : 640;
+                const height = el
+                  ? Math.max(el.clientHeight, Math.round((width * 9) / 16))
+                  : 360;
 
-            addDebug(`🛠️ Initializing AdsManager at ${width}×${height}`);
+                addDebug(`🛠️ Initializing AdsManager at ${width}×${height}`);
+                adsManager.init(width, height, google.ima.ViewMode.NORMAL);
+                adsManager.setVolume(isMutedRef.current ? 0 : 1);
 
-            try {
-              adsManager.init(width, height, google.ima.ViewMode.NORMAL);
-              adsManager.setVolume(isMutedRef.current ? 0 : 1);
-
-              // Call start() on the very next frame rather than after an
-              // arbitrary 150ms delay — a long delay risks letting the
-              // browser's "recent user gesture" window expire on stricter
-              // engines (Safari/Firefox), which is what forces IMA into
-              // its manual click-to-play fallback UI.
-              requestAnimationFrame(() => {
-                try {
-                  adsManager.start();
-                  addDebug("▶️ Starting AdsManager");
-                } catch (err) {
-                  addDebug("❌ adsManager.start() failed");
-                  console.error(err);
-                  handleSourceFailure();
-                }
-              });
-            } catch (err) {
-              addDebug("❌ adsManager.init() failed");
-              console.error(err);
-              handleSourceFailure();
-            }
+                adsManager.start();
+                addDebug("▶️ Starting AdsManager");
+              } catch (err) {
+                addDebug("❌ adsManager.init()/start() failed");
+                console.error(err);
+                handleSourceFailure();
+              }
+            });
           } catch (err) {
             addDebug(
               `❌ ERROR in AdsManagerLoaded event (source ${sourceIndexRef.current + 1})`,
@@ -2221,15 +2256,16 @@ function VideoAdPlayer({
 
   startAdRef.current = startAd;
 
-  useEffect(() => {
+  // Handler wired to the "priming" tap overlay. This is the ONLY place
+  // startAd() is invoked from outside a retry — always inside a direct
+  // onClick, so the gesture is fresh.
+  const handleTapToStart = useCallback(() => {
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
-
     sourceIndexRef.current = 0;
     retryCountRef.current = 0;
     startAd();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startAd]);
 
   const visualProgress = Math.min(
     100,
@@ -2245,16 +2281,23 @@ function VideoAdPlayer({
         <div className="relative">
           <div
             ref={adContainerRef}
-            className="ad-container relative w-full bg-black overflow-hidden h-[50vh] sm:h-auto sm:aspect-video max-h-[70vh] [&_video]:!object-contain [&_video::-webkit-media-controls]:!hidden"
+            className="ad-container relative w-full bg-black overflow-hidden h-[50vh] sm:h-auto sm:aspect-video max-h-[70vh] [&_video]:!object-contain [&_video]:!opacity-100 [&_video::-webkit-media-controls]:!hidden"
             style={{ minHeight: 200 }}
           >
-            {status === "idle" && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center text-white/50">
-                  <MdOndemandVideo className="mx-auto text-5xl" />
-                  <p className="mt-3 text-sm">Click &quot;Watch Ad&quot; to start</p>
-                </div>
-              </div>
+            {status === "priming" && (
+              <button
+                type="button"
+                onClick={handleTapToStart}
+                aria-label="Watch ad"
+                className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70"
+              >
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--brand-gold)] shadow-lg transition hover:brightness-110 active:scale-95">
+                  <MdPlayArrow className="text-4xl text-black" />
+                </span>
+                <p className="text-sm text-white/60">
+                  {sdkReady ? "Tap to start ad" : "Preparing ad…"}
+                </p>
+              </button>
             )}
 
             {(status === "loading" || status === "retrying") && (
@@ -2385,24 +2428,23 @@ function VideoAdPlayer({
                 ? "Loading next network..."
                 : status === "error"
                   ? "No ads available right now. Please try again later."
-                  : "Watch the ad to earn your reward"}
+                  : status === "priming"
+                    ? "Tap the button above to start"
+                    : "Watch the ad to earn your reward"}
           </p>
 
-          <button
-            onClick={startAd}
-            disabled={status !== "idle" && status !== "error"}
-            className="mt-4 w-full rounded-xl bg-[var(--brand-gold)] py-3 text-sm font-semibold text-black transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {status === "idle"
-              ? "▶ Watch Ad"
-              : status === "loading"
-                ? "Loading..."
-                : status === "retrying"
-                  ? "Loading..."
-                  : status === "playing"
-                    ? `Ad Playing... ${remainingTime}s`
-                    : "⚠️ Try Again"}
-          </button>
+          {status === "error" && (
+            <button
+              onClick={() => {
+                sourceIndexRef.current = 0;
+                retryCountRef.current = 0;
+                startAd();
+              }}
+              className="mt-4 w-full rounded-xl bg-[var(--brand-gold)] py-3 text-sm font-semibold text-black transition hover:brightness-110 active:scale-[0.98]"
+            >
+              ⚠️ Try Again
+            </button>
+          )}
 
           <p className="mt-2.5 text-center text-[11px] text-white/30">
             Do not close this window. Reward will be credited automatically.
