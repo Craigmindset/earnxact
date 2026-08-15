@@ -43,7 +43,7 @@ type ReferralStats = {
 // One row per claimed referral reward - a flat signup reward
 // (public.referrals, referral_claim = true), a 10% direct purchase
 // commission (public.referral_purchase_commissions, claimed = true), or a
-// 5% sub-referral (2nd level) commission (public.referral_sub_commissions,
+// 3% sub-referral (2nd level) commission (public.referral_sub_commissions,
 // claimed = true) - merged and sorted newest first.
 type ClaimHistoryEntry = {
   id: string;
@@ -240,7 +240,7 @@ export default function InviteEarnPage() {
   // - public.referrals (flat N50 signup rewards) - only rows the user has
   //   actually claimed via the "Claim" button (referral_claim = true).
   // - public.referral_purchase_commissions (10% direct purchase
-  //   commissions) and public.referral_sub_commissions (5% sub-referral /
+  //   commissions) and public.referral_sub_commissions (3% sub-referral /
   //   2nd level commissions) - both are auto-credited straight to
   //   wallet_balance the moment a referral (or a referral's referral)
   //   purchases a plan (see apply_membership_payment()), so every row here
@@ -605,7 +605,7 @@ export default function InviteEarnPage() {
         You earn <strong className="text-white">10%</strong> of the{" "}
         <strong className="text-white">EarnXact membership plan signup fee</strong>{" "}
         (NGN) when you refer a user, plus a{" "}
-        <strong className="text-white">5%</strong> sub-referral bonus when
+        <strong className="text-white">3%</strong> sub-referral bonus when
         that user refers someone else.
       </div>
 

@@ -8,8 +8,7 @@ import { useUserProfile } from "@/hooks/useUserProfile";
 import type { DailyCheckinRow, TaskSubmissionRow, TransactionRow } from "@/lib/database.types";
 
 // Returns the caller's current Nigeria (Africa/Lagos) calendar date as
-// YYYY-MM-DD, matching the format Postgres returns for a `date` column and
-// what daily_checkins.check_in_date / task_submissions.task_date store.
+// YYYY-MM-DD.
 function getNigeriaDateString(date: Date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(date);
 }
@@ -54,10 +53,9 @@ export default function DashboardStats() {
           .in("type", ["credit", "bonus"]),
         supabase
           .from("task_submissions")
-          .select("id, task_date, task_verified")
+          .select("id, submitted_at, status")
           .eq("user_id", uid)
-          .eq("task_date", todayStr)
-          .eq("task_verified", true),
+          .eq("status", "approved"),
         supabase
           .from("daily_checkins")
           .select("streak, check_in_date")
@@ -73,7 +71,9 @@ export default function DashboardStats() {
         .reduce((sum, row) => sum + Number(row.amount), 0);
 
       setTodayEarnings(earningsToday);
-      setTasksCompleted((submissions ?? []).length);
+      setTasksCompleted(
+        (submissions ?? []).filter((row) => getNigeriaDateString(new Date(row.submitted_at)) === todayStr).length
+      );
       setCheckinStreak(checkins?.[0]?.streak ?? 0);
       setLoading(false);
     }
@@ -97,7 +97,7 @@ export default function DashboardStats() {
         { event: "INSERT", schema: "public", table: "task_submissions", filter: `user_id=eq.${uid}` },
         (payload) => {
           const row = payload.new as TaskSubmissionRow;
-          if (row.task_verified && row.task_date === getNigeriaDateString()) {
+          if (row.status === "approved" && getNigeriaDateString(new Date(row.submitted_at)) === getNigeriaDateString()) {
             setTasksCompleted((prev) => prev + 1);
           }
         }
@@ -107,7 +107,7 @@ export default function DashboardStats() {
         { event: "UPDATE", schema: "public", table: "task_submissions", filter: `user_id=eq.${uid}` },
         (payload) => {
           const row = payload.new as TaskSubmissionRow;
-          if (row.task_verified && row.task_date === getNigeriaDateString()) {
+          if (row.status === "approved" && getNigeriaDateString(new Date(row.submitted_at)) === getNigeriaDateString()) {
             setTasksCompleted((prev) => prev + 1);
           }
         }

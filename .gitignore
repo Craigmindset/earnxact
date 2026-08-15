@@ -7,3 +7,6 @@ node_modules
 .env
 .env.local
 .env.*.local
+
+# Supabase migration SQL (kept local / managed in the SQL editor)
+supabase/migrations/

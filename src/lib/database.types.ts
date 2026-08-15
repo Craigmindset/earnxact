@@ -44,6 +44,8 @@ export type UserProfileRow = {
    */
   pin_hash: string | null;
   account_type: AccountType;
+  /** True for staff accounts allowed to sign in to the separate admin-exact app. */
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -172,14 +174,14 @@ export type ReferralPurchaseCommissionRow = {
 
 /**
  * One row per membership-plan purchase made by a referred user's OWN
- * referral (a "2nd level" sub-referral) — awards the grandparent user a 5%
+ * referral (a "2nd level" sub-referral) — awards the grandparent user a 3%
  * commission on top of the direct referrer's 10% (ReferralPurchaseCommissionRow).
  * Written exclusively by apply_membership_payment() alongside the 10% row.
  * No separate claim step, same as ReferralPurchaseCommissionRow.
  */
 export type ReferralSubCommissionRow = {
   id: string;
-  /** FK → user_profile.user_id — the user who receives the 5% sub-referral commission. */
+  /** FK → user_profile.user_id — the user who receives the 3% sub-referral commission. */
   grandparent_id: string;
   /** FK → user_profile.user_id — the buyer's direct referrer (the grandparent's referral). */
   referrer_id: string;
@@ -189,7 +191,7 @@ export type ReferralSubCommissionRow = {
   membership_plan_id: string | null;
   plan_name: string | null;
   purchase_amount: number;
-  /** 5% of purchase_amount. */
+  /** 3% of purchase_amount. */
   commission_amount: number;
   /** The Paystack payment reference this commission was earned from. Unique. */
   reference: string;
@@ -259,6 +261,8 @@ export type DailyTaskTemplateRow = {
   title: string;
   description: string;
   reward: number;
+  /** Optional link the user should visit to complete the task, e.g. a form or offer page. */
+  url: string | null;
   is_active: boolean;
   /** FK → membership_plans.id — which plan sees this task (categorized per plan). */
   membership_plan_id: string;
@@ -268,27 +272,23 @@ export type DailyTaskTemplateRow = {
 };
 
 /**
- * One row per user per template per Nigeria-calendar-day, written only via
- * submit_daily_task(). The unique (user_id, template_id, task_date)
- * constraint guarantees at most one submission per user per task per day.
+ * One row per user task proof submission. The current schema stores the
+ * template FK as daily_task_template_id and uses submitted_at/status rather
+ * than the older task_date/task_verified/reward snapshot fields.
  */
 export type TaskSubmissionRow = {
   id: string;
   /** FK → auth.users.id */
   user_id: string;
   /** FK → daily_task_templates.id */
-  template_id: string;
-  /** Nigeria (Africa/Lagos) calendar date this task instance belongs to. */
-  task_date: string;
-  status: string;
+  daily_task_template_id: string;
   /** Cloudinary URL of the uploaded proof screenshot. */
-  proof_url: string;
-  /** Amount actually paid for this submission (template.reward at submit time). */
-  reward: number;
-  /** Set only by verify_task_submission() (admin, via SQL) - the reward is
-   *  credited at that point, not at submission time. */
-  task_verified: boolean;
+  screenshot_url: string;
+  status: string;
   submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
 };
 
 /**
@@ -371,8 +371,8 @@ export type Database = {
     Tables: {
       user_profile: {
         Row: UserProfileRow;
-        Insert: Omit<UserProfileRow, "created_at" | "updated_at"> &
-          Partial<Pick<UserProfileRow, "created_at" | "updated_at">>;
+        Insert: Omit<UserProfileRow, "created_at" | "updated_at" | "is_admin"> &
+          Partial<Pick<UserProfileRow, "created_at" | "updated_at" | "is_admin">>;
         Update: Partial<Omit<UserProfileRow, "user_id">>;
         Relationships: [
           {
@@ -475,8 +475,8 @@ export type Database = {
       };
       task_submissions: {
         Row: TaskSubmissionRow;
-        Insert: Omit<TaskSubmissionRow, "id" | "status" | "submitted_at" | "task_verified"> &
-          Partial<Pick<TaskSubmissionRow, "id" | "status" | "submitted_at" | "task_verified">>;
+        Insert: Omit<TaskSubmissionRow, "id" | "status" | "submitted_at" | "reviewed_at" | "reviewed_by" | "created_at"> &
+          Partial<Pick<TaskSubmissionRow, "id" | "status" | "submitted_at" | "reviewed_at" | "reviewed_by" | "created_at">>;
         Update: Partial<Omit<TaskSubmissionRow, "id">>;
         Relationships: [];
       };
@@ -596,6 +596,46 @@ export type Database = {
           plan_name: string;
           account_type: AccountType;
         }[];
+      };
+      get_admin_dashboard_stats: {
+        Args: Record<string, never>;
+        Returns: {
+          total_users: number;
+          total_pay_in: number;
+          total_payout: number;
+          pending_withdrawals: number;
+          admin_balance: number;
+        }[];
+      };
+      admin_send_notification: {
+        Args: {
+          p_title: string;
+          p_message: string;
+          p_target_type: string;
+          p_membership_plan_id?: string | null;
+          p_target_email?: string | null;
+        };
+        Returns: number;
+      };
+      get_admin_users_list: {
+        Args: Record<string, never>;
+        Returns: {
+          user_id: string;
+          first_name: string | null;
+          last_name: string | null;
+          email: string;
+          phone_num: string | null;
+          avatar_url: string | null;
+          membership_plan_name: string | null;
+          wallet_balance: number;
+          joined_at: string;
+          referrals_count: number;
+          total_withdrawn: number;
+        }[];
+      };
+      get_admin_user_detail: {
+        Args: { p_user_id: string };
+        Returns: Json;
       };
     };
     Enums: {

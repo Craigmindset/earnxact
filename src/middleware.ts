@@ -11,6 +11,6 @@ export const config = {
      * Run on dashboard routes (protected) and everything else except static
      * assets, so the auth session cookie stays fresh across navigation.
      */
-    "/((?!_next/static|_next/image|favicon.ico|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"
   ]
 };

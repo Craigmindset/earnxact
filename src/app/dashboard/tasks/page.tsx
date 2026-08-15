@@ -15,6 +15,7 @@ import {
   MdClose,
   MdHourglassEmpty,
   MdLock,
+  MdOpenInNew,
   MdUploadFile
 } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
@@ -84,6 +85,10 @@ function formatCountdown(ms: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function getNigeriaDateString(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(date);
+}
+
 export default function TasksPage() {
   const { userId, firstName, lastName, avatarUrl, uploadAvatar } = useUserProfile();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,14 +123,17 @@ export default function TasksPage() {
   // re-runs whenever membershipPlanId changes (e.g. right after an upgrade
   // is picked up by the user_profile realtime listener below), so the card
   // list always reflects the plan the user is on right now, never a stale
-  // one from an earlier plan.
+  // one from an earlier plan. Also subscribes to postgres_changes on
+  // daily_task_templates (admin-exact's Create Task page writes here via
+  // admin_upsert_daily_task_template()) so a title/description/reward edit
+  // shows up on this page instantly, with no refresh needed.
   useEffect(() => {
     if (!membershipPlanId) return;
     const planId = membershipPlanId;
     let cancelled = false;
+    const supabase = createClient();
 
     async function loadTemplates() {
-      const supabase = createClient();
       const { data } = await supabase
         .from("daily_task_templates")
         .select("*")
@@ -139,8 +147,26 @@ export default function TasksPage() {
     }
 
     loadTemplates();
+
+    const channel = supabase
+      .channel(`daily_task_templates_${planId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "daily_task_templates",
+          filter: `membership_plan_id=eq.${planId}`
+        },
+        () => {
+          loadTemplates();
+        }
+      )
+      .subscribe();
+
     return () => {
       cancelled = true;
+      supabase.removeChannel(channel);
     };
   }, [membershipPlanId]);
 
@@ -159,15 +185,20 @@ export default function TasksPage() {
       if (cancelled) return;
 
       const rows = subs ?? [];
-      const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
+      const todayStr = getNigeriaDateString();
       const todayMap: Record<string, TaskSubmissionRow> = {};
       for (const row of rows) {
-        if (row.task_date === todayStr) {
-          todayMap[row.template_id] = row;
+        const submissionDate = getNigeriaDateString(new Date(row.submitted_at));
+        if (submissionDate === todayStr) {
+          todayMap[row.daily_task_template_id] = row;
         }
       }
       setSubmissions(todayMap);
-      setAllSubmissionDates(rows.filter((row) => row.task_verified).map((row) => row.task_date));
+      setAllSubmissionDates(
+        rows
+          .filter((row) => row.status === "approved")
+          .map((row) => getNigeriaDateString(new Date(row.submitted_at)))
+      );
     }
 
     async function loadUserData() {
@@ -194,7 +225,7 @@ export default function TasksPage() {
 
     // Don't rely solely on the Realtime subscriptions below to eventually
     // deliver an update - also poll on a short interval as an "underlay"
-    // safety net, so an admin's task_verified change (or a plan upgrade)
+    // safety net, so an admin's task approval change (or a plan upgrade)
     // shows up within seconds even if a websocket event is missed/delayed.
     const pollTimer = setInterval(() => {
       refreshSubmissionsRef.current();
@@ -205,31 +236,17 @@ export default function TasksPage() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "task_submissions", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = payload.new as TaskSubmissionRow;
-          const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
-          if (row.task_date === todayStr) {
-            setSubmissions((prev) => ({ ...prev, [row.template_id]: row }));
-          }
-          if (row.task_verified) {
-            setAllSubmissionDates((prev) => [...prev, row.task_date]);
-          }
+        () => {
+          refreshSubmissionsRef.current();
         }
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "task_submissions", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          // Fired when an admin verifies a submission (task_verified flips to
-          // true and the reward gets credited) - flip the card green live.
-          const row = payload.new as TaskSubmissionRow;
-          const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
-          if (row.task_date === todayStr) {
-            setSubmissions((prev) => ({ ...prev, [row.template_id]: row }));
-          }
-          if (row.task_verified) {
-            setAllSubmissionDates((prev) => (prev.includes(row.task_date) ? prev : [...prev, row.task_date]));
-          }
+        () => {
+          // Reload from the source of truth so approvals always reflect
+          // the latest row shape/status, even if the realtime payload is partial.
+          refreshSubmissionsRef.current();
         }
       )
       .on(
@@ -461,7 +478,7 @@ export default function TasksPage() {
           const isToday = template.weekday === clock.isoWeekday;
           const submission = submissions[template.id];
           const hasSubmission = Boolean(submission);
-          const verified = Boolean(submission?.task_verified);
+          const verified = submission?.status === "approved";
           const pending = hasSubmission && !verified;
           const expired = isToday && !hasSubmission && clock.msUntilMidnight <= 0;
           const dayLabel = WEEKDAY_LABELS[template.weekday - 1];
@@ -524,6 +541,18 @@ export default function TasksPage() {
                     Reward: {CURRENCY_SYMBOL}
                     {Number(template.reward).toFixed(2)}
                   </div>
+
+                  {template.url && (
+                    <a
+                      href={template.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                    >
+                      <MdOpenInNew className="text-sm" />
+                      Open link
+                    </a>
+                  )}
 
                   {verified ? (
                     <div className="mt-4 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs font-medium text-green-400">
