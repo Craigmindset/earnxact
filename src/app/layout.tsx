@@ -32,9 +32,8 @@ export const metadata: Metadata = {
   },
   other: {
     "6a97888e-site-verification": "93488f4f25f0e389b689d733c2cf41e1",
-    // this meta is for video ads integration
-    "00b7a60029f36f8e26e6340a860e7474dddd884b":
-      "00b7a60029f36f8e26e6340a860e7474dddd884b",
+    "de3648d49bf03dc1e91797d3819e5614a2c7fac3":
+      "de3648d49bf03dc1e91797d3819e5614a2c7fac3",
   },
 };
 
