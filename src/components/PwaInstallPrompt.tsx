@@ -21,10 +21,20 @@ export default function PwaInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(true);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    // Check if device is mobile
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent);
+      const isSmallScreen = window.innerWidth <= 768;
+      return isMobileDevice || isSmallScreen;
+    };
+    
+    setIsMobile(checkMobile());
     setDismissed(window.localStorage.getItem(DISMISS_KEY) === "1");
     setIsInstalled(isStandalone());
 
@@ -60,8 +70,8 @@ export default function PwaInstallPrompt() {
     return /iphone|ipad|ipod/i.test(navigator.userAgent);
   }, []);
 
-  const showIosHint = isIos && !isInstalled && !dismissed;
-  const showInstallPrompt = Boolean(deferredPrompt) && !isInstalled && !dismissed;
+  const showIosHint = isIos && !isInstalled && !dismissed && isMobile;
+  const showInstallPrompt = Boolean(deferredPrompt) && !isInstalled && !dismissed && isMobile;
 
   async function handleInstall() {
     if (!deferredPrompt) return;

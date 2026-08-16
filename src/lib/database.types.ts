@@ -129,6 +129,27 @@ export type WatchVideoRow = {
   watched_at: string;
 };
 
+export type WatchAdsVideoRow = {
+  id: string;
+  title: string;
+  video_url: string;
+  thumbnail_url: string;
+  reward_amount: number;
+  duration: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WatchAdsHistoryRow = {
+  id: string;
+  user_id: string;
+  video_id: string;
+  reward_earned: number;
+  watched_at: string;
+  date: string;
+};
+
 export type ReferralRow = {
   id: string;
   /** FK → user_profile.user_id — the user who receives the reward. */
@@ -425,6 +446,20 @@ export type Database = {
         Update: Partial<Omit<WatchVideoRow, "id">>;
         Relationships: [];
       };
+      watch_ads_videos: {
+        Row: WatchAdsVideoRow;
+        Insert: Omit<WatchAdsVideoRow, "id" | "created_at" | "updated_at" | "is_active" | "reward_amount" | "duration"> &
+          Partial<Pick<WatchAdsVideoRow, "id" | "created_at" | "updated_at" | "is_active" | "reward_amount" | "duration">>;
+        Update: Partial<Omit<WatchAdsVideoRow, "id" | "created_at">>;
+        Relationships: [];
+      };
+      watch_ads_history: {
+        Row: WatchAdsHistoryRow;
+        Insert: Omit<WatchAdsHistoryRow, "id" | "watched_at" | "date"> &
+          Partial<Pick<WatchAdsHistoryRow, "id" | "watched_at" | "date">>;
+        Update: Partial<Omit<WatchAdsHistoryRow, "id">>;
+        Relationships: [];
+      };
       referrals: {
         Row: ReferralRow;
         Insert: Omit<ReferralRow, "id" | "created_at" | "reward_amount" | "referral_claim"> &
@@ -635,6 +670,14 @@ export type Database = {
       };
       get_admin_user_detail: {
         Args: { p_user_id: string };
+        Returns: Json;
+      };
+      get_daily_watch_count: {
+        Args: { p_user_id: string; p_date?: string };
+        Returns: number;
+      };
+      record_video_watch: {
+        Args: { p_video_id: string; p_user_id?: string };
         Returns: Json;
       };
     };
