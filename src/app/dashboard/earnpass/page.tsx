@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import { MdBolt, MdClose, MdTrendingUp, MdWorkspacePremium } from "react-icons/md";
+import { MdBolt, MdClose, MdInfoOutline, MdTrendingUp, MdWorkspacePremium } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { TASK_CLASSES } from "@/components/dashboard/task-class-data";
 import { createClient } from "@/lib/supabase/client";
@@ -30,6 +30,17 @@ function iconForPlan(name: string) {
 // every plan ranked below it (plans are loaded ordered by amount ascending)
 // gets the "+5% bonus" badge.
 const BONUS_PERCENT = 5;
+const SIX_WEEK_ROI_PERCENT = 50;
+const EARNING_DAYS_PER_WEEK = 5;
+const EARNING_WEEKS = 6;
+
+function sixWeekReturnAmount(amount: number) {
+  return amount + amount * (SIX_WEEK_ROI_PERCENT / 100);
+}
+
+function projectedDailyEarnings(amount: number) {
+  return sixWeekReturnAmount(amount) / (EARNING_DAYS_PER_WEEK * EARNING_WEEKS);
+}
 
 type CheckoutUser = {
   firstName: string | null;
@@ -49,6 +60,7 @@ export default function EarnPassPage() {
     phone: null
   });
   const [selectedPlan, setSelectedPlan] = useState<MembershipPlanRow | null>(null);
+  const [infoPlan, setInfoPlan] = useState<MembershipPlanRow | null>(null);
   const [paying, setPaying] = useState(false);
   const [payMessage, setPayMessage] = useState<string | null>(null);
 
@@ -106,6 +118,10 @@ export default function EarnPassPage() {
     if (paying) return;
     setSelectedPlan(null);
     setPayMessage(null);
+  }
+
+  function closeInfoModal() {
+    setInfoPlan(null);
   }
 
   // Starts a Paystack checkout for selectedPlan (see
@@ -183,6 +199,9 @@ export default function EarnPassPage() {
           {plans.map((plan) => {
             const Icon = iconForPlan(plan.name);
             const isCurrent = plan.id === currentPlanId;
+            const planAmount = Number(plan.amount);
+            const projectedReturn = sixWeekReturnAmount(planAmount);
+            const dailyReturn = projectedDailyEarnings(planAmount);
             // Every plan except the default "Free" plan and the starter
             // "Task class1" tier gets the bonus badge - matched by name
             // (not array position) so it stays correct regardless of how
@@ -194,20 +213,20 @@ export default function EarnPassPage() {
             return (
               <div
                 key={plan.id}
-                className={`flex flex-col justify-between rounded-2xl border p-5 ${
+                className={`flex min-h-[18rem] flex-col justify-between rounded-2xl border p-6 ${
                   isCurrent
                     ? "border-[var(--brand-gold)]/50 bg-[var(--brand-gold)]/5"
                     : "border-white/10 bg-white/5"
                 }`}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--brand-gold)]/15 text-[var(--brand-gold)]">
                         <Icon className="text-xl" />
                       </div>
 
-                      <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-white">
                         {plan.name}
                         {isCurrent && (
                           <span className="rounded-full bg-[var(--brand-gold)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-gold)]">
@@ -217,19 +236,41 @@ export default function EarnPassPage() {
                       </div>
                     </div>
 
-                    {hasBonus && (
-                      <span className="shrink-0 rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-400">
-                        +{BONUS_PERCENT}% bonus
-                      </span>
-                    )}
+                    <div className="flex shrink-0 items-center gap-2">
+                      {hasBonus && (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-400">
+                          +{BONUS_PERCENT}% bonus
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setInfoPlan(plan)}
+                        aria-label={`View earning details for ${plan.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:border-[var(--brand-gold)]/40 hover:text-[var(--brand-gold)]"
+                      >
+                        <MdInfoOutline className="text-base" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="mt-4 text-2xl font-semibold text-[var(--brand-gold)]">
-                    {CURRENCY_SYMBOL}
-                    {Number(plan.amount).toLocaleString()}
+                  <div className="mt-4 flex items-start justify-between gap-4">
+                    <div className="text-2xl font-semibold text-[var(--brand-gold)]">
+                      {CURRENCY_SYMBOL}
+                      {planAmount.toLocaleString()}
+                    </div>
+                    {planAmount > 0 ? (
+                      <div className="max-w-[11rem] text-right">
+                        <p className="text-sm leading-tight text-white/70">
+                          6-week return: <span className="font-semibold text-emerald-400">{CURRENCY_SYMBOL}{projectedReturn.toLocaleString()}</span>
+                        </p>
+                        <p className="mt-2 text-xs leading-relaxed text-white/55">
+                          Est. daily earnings: {CURRENCY_SYMBOL}{dailyReturn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                   {plan.description && (
-                    <p className="mt-2 text-xs leading-relaxed text-white/60">
+                    <p className="mt-12 text-xs leading-relaxed text-white/60">
                       {plan.description}
                     </p>
                   )}
@@ -247,6 +288,58 @@ export default function EarnPassPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {infoPlan && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onClick={closeInfoModal}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-[var(--brand-card-1)] p-6"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Earning journey details</h3>
+                <p className="mt-1 text-sm text-white/60">{infoPlan.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeInfoModal}
+                aria-label="Close earning details"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <MdClose className="text-lg" />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4 text-sm leading-relaxed text-white/75">
+              <p>
+                Earn financial rewards using Earnxact, watch videos, engage in task daily and earn legitimately.
+              </p>
+              {Number(infoPlan.amount) > 0 ? (
+                <>
+                  <p>
+                    Earn from watching video, engaging task, check-in.
+                  </p>
+                  <p className="text-xs text-white/55">
+                    Membership plan: {infoPlan.name}. Next daily earnings: {CURRENCY_SYMBOL}
+                    {projectedDailyEarnings(Number(infoPlan.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 })}.
+                  </p>
+                  <p className="text-xs text-white/55">
+                    Calculation: {CURRENCY_SYMBOL}{Number(infoPlan.amount).toLocaleString()} + 50% = {CURRENCY_SYMBOL}
+                    {sixWeekReturnAmount(Number(infoPlan.amount)).toLocaleString()}, spread across {EARNING_DAYS_PER_WEEK} days weekly for {EARNING_WEEKS} weeks.
+                  </p>
+                  <div className="h-px bg-white/10" />
+                </>
+              ) : null}
+              <p className="font-medium text-emerald-400">
+                Earn additional 50% bonus when you refer a user to any membership plan.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -310,9 +403,20 @@ export default function EarnPassPage() {
 
               <div>
                 <div className="text-xs font-medium text-white/50">Amount</div>
-                <div className="mt-1 text-xl font-semibold text-[var(--brand-gold)]">
-                  {CURRENCY_SYMBOL}
-                  {Number(selectedPlan.amount).toLocaleString()}
+                <div className="mt-1 flex items-start justify-between gap-4">
+                  <div className="text-xl font-semibold text-[var(--brand-gold)]">
+                    {CURRENCY_SYMBOL}
+                    {Number(selectedPlan.amount).toLocaleString()}
+                  </div>
+                  <div className="max-w-[11rem] text-right">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/45">
+                      Your returned earnings in 6 weeks
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-emerald-400">
+                      {CURRENCY_SYMBOL}
+                      {sixWeekReturnAmount(Number(selectedPlan.amount)).toLocaleString()}
+                    </div>
+                  </div>
                 </div>
               </div>
 
