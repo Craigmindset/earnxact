@@ -4,6 +4,8 @@ const EARNING_WEEKS = 6;
 const DAILY_TASK_SHARE = 0.6;
 const DAILY_VIDEO_SHARE = 0.4;
 const DAILY_VIDEO_COUNT = 3;
+const FREE_PLAN_TASK_REWARD = 100;
+const FREE_PLAN_PER_VIDEO_REWARD = 10;
 
 export type RoiSplit = {
   sixWeekReturn: number;
@@ -18,8 +20,24 @@ function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-export function getRoiSplit(amount: number): RoiSplit {
+export function getRoiSplit(amount: number, planName?: string | null): RoiSplit {
   const safeAmount = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  const normalizedPlanName = planName?.trim().toLowerCase() ?? null;
+
+  if (normalizedPlanName === "free" || safeAmount === 0) {
+    const videoDailyPool = roundCurrency(FREE_PLAN_PER_VIDEO_REWARD * DAILY_VIDEO_COUNT);
+    const dailyTotal = roundCurrency(FREE_PLAN_TASK_REWARD + videoDailyPool);
+
+    return {
+      sixWeekReturn: roundCurrency(dailyTotal * EARNING_DAYS_PER_WEEK * EARNING_WEEKS),
+      dailyTotal,
+      taskDailyReward: roundCurrency(FREE_PLAN_TASK_REWARD),
+      videoDailyPool,
+      perVideoReward: roundCurrency(FREE_PLAN_PER_VIDEO_REWARD),
+      dailyVideoCount: DAILY_VIDEO_COUNT,
+    };
+  }
+
   const sixWeekReturn = roundCurrency(safeAmount + safeAmount * (SIX_WEEK_ROI_PERCENT / 100));
   const dailyTotal = roundCurrency(sixWeekReturn / (EARNING_DAYS_PER_WEEK * EARNING_WEEKS));
   const taskDailyReward = roundCurrency(dailyTotal * DAILY_TASK_SHARE);
