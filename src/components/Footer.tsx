@@ -1,4 +1,5 @@
-import { FaTelegram, FaXTwitter, FaYoutube } from "react-icons/fa6";
+import Link from "next/link";
+import { FaTelegram, FaXTwitter } from "react-icons/fa6";
 
 export default function Footer() {
   return (
@@ -22,10 +23,15 @@ export default function Footer() {
                 EARN
               </div>
               <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
-                <span className="block">Surveys</span>
-                <span className="block">Offers</span>
-                <span className="block">Tasks</span>
-                <span className="block">Referrals</span>
+                <Link href="/earn-acts#offers" className="block transition hover:text-white">
+                  Offers
+                </Link>
+                <Link href="/earn-acts#tasks" className="block transition hover:text-white">
+                  Tasks
+                </Link>
+                <Link href="/earn-acts#referrals" className="block transition hover:text-white">
+                  Referrals
+                </Link>
               </div>
             </div>
 
@@ -34,10 +40,15 @@ export default function Footer() {
                 COMPANY
               </div>
               <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
-                <span className="block">About</span>
-                <span className="block">Search</span>
-                <span className="block">Blog</span>
-                <span className="block">Support</span>
+                <Link href="/about-us" className="block transition hover:text-white">
+                  About Us
+                </Link>
+                <Link href="/about-us#fraud-detection" className="block transition hover:text-white">
+                  Fraud Detection
+                </Link>
+                <Link href="/support" className="block transition hover:text-white">
+                  Support
+                </Link>
               </div>
             </div>
 
@@ -46,9 +57,15 @@ export default function Footer() {
                 LEGAL
               </div>
               <div className="mt-3 space-y-2 text-xs text-white/60 sm:text-sm">
-                <span className="block">Terms of Service</span>
-                <span className="block">Privacy Policy</span>
-                <span className="block">Cookie Policy</span>
+                <Link href="/terms-of-service" className="block transition hover:text-white">
+                  Terms of Service
+                </Link>
+                <Link href="/privacy-policy" className="block transition hover:text-white">
+                  Privacy Policy
+                </Link>
+                <Link href="/cookie-policy" className="block transition hover:text-white">
+                  Cookie Policy
+                </Link>
               </div>
             </div>
           </div>
@@ -67,10 +84,6 @@ export default function Footer() {
               <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
                 <FaXTwitter className="text-base" />
                 <span className="text-xs">X</span>
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
-                <FaYoutube className="text-base" />
-                <span className="text-xs">YouTube</span>
               </span>
             </div>
           </div>

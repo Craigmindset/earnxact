@@ -140,9 +140,32 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
     setIsSubmitting(true);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const emailCheckResponse = await fetch("/api/auth/check-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail })
+      });
+
+      const emailCheckData = await emailCheckResponse.json().catch(() => null) as
+        | { exists?: boolean; error?: string }
+        | null;
+
+      if (!emailCheckResponse.ok) {
+        setErrorMessage(emailCheckData?.error ?? "Unable to verify this email address right now. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (emailCheckData?.exists) {
+        setErrorMessage("An account with this email address already exists. Please sign in or use a different email address.");
+        setIsSubmitting(false);
+        return;
+      }
+
       const supabase = createClient();
       const signupPayload = {
-        email: email.trim(),
+        email: normalizedEmail,
         options: {
           data: {
             first_name: firstName.trim(),
@@ -185,9 +208,15 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
           error.message.toLowerCase().includes("unexpected_failure");
 
         const isFetchFailure = error.message.toLowerCase().includes("fetch failed");
+        const isExistingUserError =
+          error.message.toLowerCase().includes("already registered") ||
+          error.message.toLowerCase().includes("already exists") ||
+          error.message.toLowerCase().includes("user already registered");
 
         setErrorMessage(
-          isDatabaseSignupError
+          isExistingUserError
+            ? "An account with this email address already exists. Please sign in or use a different email address."
+            : isDatabaseSignupError
             ? "Signup failed due a database trigger/schema issue. Re-run the Supabase migration and verify the handle_new_user trigger exists."
             : isFetchFailure
               ? "Network request failed while contacting Supabase. Confirm internet access, check firewall/VPN/ad-block rules, and verify your NEXT_PUBLIC_SUPABASE_URL is reachable."
