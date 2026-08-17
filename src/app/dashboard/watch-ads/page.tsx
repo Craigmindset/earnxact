@@ -3,6 +3,12 @@
 import { useState, useEffect } from "react";
 import { MdOndemandVideo, MdClose } from "react-icons/md";
 import { FaPlay, FaCheckCircle } from "react-icons/fa";
+import {
+  getWatchAdsDailyStateAction,
+  recordVideoWatchAction,
+} from "@/app/dashboard/watch-ads/actions";
+import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { DAILY_VIDEO_COUNT, getRoiSplit } from "@/lib/earnings";
 import { createClient } from "@/lib/supabase/client";
 
 interface Video {
@@ -21,16 +27,22 @@ type RecordVideoWatchResult = {
   watch_count?: number;
 };
 
+const CLAIM_UNLOCK_SECONDS = 63;
+const WATCH_ADS_DISPLAY_TITLE = "Watch for the day";
+
 export default function WatchAdsPage() {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [watchedVideos, setWatchedVideos] = useState<Set<string>>(new Set());
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [watchSecondsLeft, setWatchSecondsLeft] = useState(0);
   const [videoBank, setVideoBank] = useState<Video[]>([]);
   const [visibleVideos, setVisibleVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
   const [dailyCount, setDailyCount] = useState(0);
-  const dailyLimit = 5;
+  const [membershipPlanAmount, setMembershipPlanAmount] = useState(0);
+  const dailyLimit = DAILY_VIDEO_COUNT;
   const supabase = createClient();
+  const roi = getRoiSplit(membershipPlanAmount);
 
   function getRandomVideos(pool: Video[], count: number, excludedIds: Set<string> = new Set()) {
     const available = pool.filter((video) => !excludedIds.has(video.id));
@@ -44,6 +56,58 @@ export default function WatchAdsPage() {
     const freshVideos = getRandomVideos(pool, Math.max(0, 3 - watchedVisible.length), new Set([...watchedIds, ...watchedVisibleIds]));
 
     return [...watchedVisible, ...freshVideos].slice(0, 3);
+  }
+
+  function parseDurationToSeconds(duration: string) {
+    const trimmed = duration.trim().toLowerCase();
+    if (!trimmed) return 0;
+
+    const minuteMatch = trimmed.match(/(\d+)\s*m/);
+    const secondMatch = trimmed.match(/(\d+)\s*s/);
+    const plainNumberMatch = trimmed.match(/^\d+$/);
+
+    const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
+    const seconds = secondMatch ? Number(secondMatch[1]) : 0;
+
+    if (minutes || seconds) {
+      return minutes * 60 + seconds;
+    }
+
+    return plainNumberMatch ? Number(trimmed) : 0;
+  }
+
+  function formatDuration(seconds: number) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (minutes > 0) {
+      return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+    }
+
+    return `${remainingSeconds}s`;
+  }
+
+  async function loadDailyWatchState(pool: Video[] = videoBank) {
+    const state = await getWatchAdsDailyStateAction();
+
+    if (!state.success) {
+      if (state.message && state.message !== "Not authenticated") {
+        console.error("Error fetching watch history:", state.message);
+      }
+      return;
+    }
+
+    const watchedIds = new Set(state.watchedVideoIds);
+    setWatchedVideos(watchedIds);
+    setDailyCount(state.dailyCount);
+    setMembershipPlanAmount(state.membershipPlanAmount);
+    setVisibleVideos((current) => {
+      if (current.length === 0) {
+        return getRandomVideos(pool, DAILY_VIDEO_COUNT, watchedIds);
+      }
+
+      return refillVisibleVideos(pool, watchedIds);
+    });
   }
 
   // Fetch videos from database
@@ -72,40 +136,57 @@ export default function WatchAdsPage() {
 
   // Fetch user's daily watch count and history
   useEffect(() => {
-    async function fetchWatchHistory() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const today = new Date().toISOString().split("T")[0];
-        
-        const { data, error } = await supabase
-          .from("watch_ads_history")
-          .select("video_id")
-          .eq("user_id", user.id)
-          .eq("date", today);
-
-        if (error) throw error;
-        
-        if (data) {
-          const watchedIds = new Set(data.map((item) => item.video_id));
-          setWatchedVideos(watchedIds);
-          setDailyCount(data.length);
-          setVisibleVideos((current) => {
-            if (current.length === 0) {
-              return getRandomVideos(videoBank, 3, watchedIds);
-            }
-
-            return refillVisibleVideos(videoBank, watchedIds);
-          });
-        }
-      } catch (error) {
-        console.error("Error fetching watch history:", error);
-      }
+    if (videoBank.length === 0) {
+      return;
     }
 
-    fetchWatchHistory();
+    void loadDailyWatchState(videoBank);
   }, [videoBank]);
+
+  useEffect(() => {
+    if (videoBank.length === 0) {
+      return;
+    }
+
+    const syncState = () => {
+      void loadDailyWatchState(videoBank);
+    };
+
+    window.addEventListener("focus", syncState);
+    document.addEventListener("visibilitychange", syncState);
+
+    return () => {
+      window.removeEventListener("focus", syncState);
+      document.removeEventListener("visibilitychange", syncState);
+    };
+  }, [videoBank]);
+
+  useEffect(() => {
+    if (!isVideoPlaying || !selectedVideo) {
+      setWatchSecondsLeft(0);
+      return;
+    }
+
+    const initialSeconds = Math.max(parseDurationToSeconds(selectedVideo.duration), CLAIM_UNLOCK_SECONDS);
+    setWatchSecondsLeft(initialSeconds);
+
+    if (initialSeconds <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setWatchSecondsLeft((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          return 0;
+        }
+
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isVideoPlaying, selectedVideo]);
 
   const handlePlayClick = (video: Video) => {
     setSelectedVideo(video);
@@ -115,30 +196,28 @@ export default function WatchAdsPage() {
   const handleClosePopup = () => {
     setIsVideoPlaying(false);
     setSelectedVideo(null);
+    setWatchSecondsLeft(0);
   };
 
   const handleVideoComplete = async () => {
-    if (!selectedVideo || watchedVideos.has(selectedVideo.id)) return;
+    if (!selectedVideo || watchedVideos.has(selectedVideo.id) || watchSecondsLeft > 0) return;
 
     try {
-      const { data, error } = await supabase.rpc("record_video_watch", {
-        p_video_id: selectedVideo.id,
-      });
-      const result = data as RecordVideoWatchResult | null;
-
-      if (error) throw error;
+      const result = await recordVideoWatchAction(selectedVideo.id);
 
       if (result?.success) {
-        // Update local state
-        const newWatchedVideos = new Set(watchedVideos);
-        newWatchedVideos.add(selectedVideo.id);
-        setWatchedVideos(newWatchedVideos);
-        setDailyCount(result.watch_count ?? dailyCount + 1);
-        setVisibleVideos(refillVisibleVideos(videoBank, newWatchedVideos));
+        const watchedIds = new Set(result.watchedVideoIds);
+        setWatchedVideos(watchedIds);
+        setDailyCount(result.dailyCount);
+        setMembershipPlanAmount(result.membershipPlanAmount);
+        setVisibleVideos(refillVisibleVideos(videoBank, watchedIds));
         handleClosePopup();
 
-        // Show success message (you can add a toast notification here)
-        alert(`🎉 Congratulations! You earned ${result.reward ?? 0} coins!`);
+        alert(
+          `Congratulations! You earned ${CURRENCY_SYMBOL}${Number(result.reward ?? 0).toLocaleString(undefined, {
+            maximumFractionDigits: 2,
+          })}.`
+        );
       } else {
         alert(result?.message || "Failed to record video watch");
       }
@@ -149,6 +228,7 @@ export default function WatchAdsPage() {
   };
 
   const isVideoWatched = (videoId: string) => watchedVideos.has(videoId);
+  const canClaimSelectedVideo = selectedVideo ? watchSecondsLeft <= 0 && !isVideoWatched(selectedVideo.id) : false;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-6">
@@ -162,7 +242,7 @@ export default function WatchAdsPage() {
             </h1>
           </div>
           <p className="text-gray-600 dark:text-gray-400">
-            Watch short ads and earn rewards instantly!
+            Watch {dailyLimit} videos daily and earn {CURRENCY_SYMBOL}{roi.videoDailyPool.toLocaleString(undefined, { maximumFractionDigits: 2 })} from your video rewards.
           </p>
         </div>
 
@@ -246,7 +326,7 @@ export default function WatchAdsPage() {
                 {/* Card Content */}
                 <div className="p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-                    {video.title}
+                    {WATCH_ADS_DISPLAY_TITLE}
                   </h3>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -254,7 +334,7 @@ export default function WatchAdsPage() {
                         Reward:
                       </span>
                       <span className="text-lg font-bold text-green-600">
-                        +{video.reward_amount} coins
+                        +{CURRENCY_SYMBOL}{roi.perVideoReward.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
@@ -271,7 +351,7 @@ export default function WatchAdsPage() {
               {/* Modal Header */}
               <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {selectedVideo.title}
+                  {WATCH_ADS_DISPLAY_TITLE}
                 </h3>
                 <button
                   onClick={handleClosePopup}
@@ -294,20 +374,27 @@ export default function WatchAdsPage() {
               {/* Modal Footer */}
               <div className="p-4 border-t border-gray-200 dark:border-gray-700">
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  Watch the full video to earn your reward!
+                  {watchSecondsLeft > 0
+                    ? `Keep this video open for ${formatDuration(watchSecondsLeft)} to unlock your reward.`
+                    : "Reward unlocked. You can now claim your naira reward."}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Embedded videos do not report a reliable cross-site completion event here, so the wallet credit is released after the watch timer finishes and the claim is submitted.
                 </p>
                 <button
                   onClick={handleVideoComplete}
-                  disabled={isVideoWatched(selectedVideo.id)}
+                  disabled={!canClaimSelectedVideo}
                   className={`w-full py-3 px-4 rounded-lg font-semibold transition-colors ${
-                    isVideoWatched(selectedVideo.id)
+                    !canClaimSelectedVideo
                       ? "bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed"
                       : "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white"
                   }`}
                 >
                   {isVideoWatched(selectedVideo.id)
                     ? "Already Claimed"
-                    : `Claim ${selectedVideo.reward_amount} Coins Reward`}
+                    : watchSecondsLeft > 0
+                      ? `Claim opens in ${formatDuration(watchSecondsLeft)}`
+                      : `Claim ${CURRENCY_SYMBOL}${roi.perVideoReward.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
                 </button>
               </div>
             </div>

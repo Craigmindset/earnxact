@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { MdBolt, MdClose, MdInfoOutline, MdTrendingUp, MdWorkspacePremium } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { DAILY_VIDEO_COUNT, EARNING_DAYS_PER_WEEK, EARNING_WEEKS, getRoiSplit } from "@/lib/earnings";
 import { TASK_CLASSES } from "@/components/dashboard/task-class-data";
 import { createClient } from "@/lib/supabase/client";
 import type { MembershipPlanRow } from "@/lib/database.types";
@@ -30,18 +31,6 @@ function iconForPlan(name: string) {
 // every plan ranked below it (plans are loaded ordered by amount ascending)
 // gets the "+5% bonus" badge.
 const BONUS_PERCENT = 5;
-const SIX_WEEK_ROI_PERCENT = 50;
-const EARNING_DAYS_PER_WEEK = 5;
-const EARNING_WEEKS = 6;
-
-function sixWeekReturnAmount(amount: number) {
-  return amount + amount * (SIX_WEEK_ROI_PERCENT / 100);
-}
-
-function projectedDailyEarnings(amount: number) {
-  return sixWeekReturnAmount(amount) / (EARNING_DAYS_PER_WEEK * EARNING_WEEKS);
-}
-
 type CheckoutUser = {
   firstName: string | null;
   lastName: string | null;
@@ -200,8 +189,7 @@ export default function EarnPassPage() {
             const Icon = iconForPlan(plan.name);
             const isCurrent = plan.id === currentPlanId;
             const planAmount = Number(plan.amount);
-            const projectedReturn = sixWeekReturnAmount(planAmount);
-            const dailyReturn = projectedDailyEarnings(planAmount);
+            const roi = getRoiSplit(planAmount);
             // Every plan except the default "Free" plan and the starter
             // "Task class1" tier gets the bonus badge - matched by name
             // (not array position) so it stays correct regardless of how
@@ -261,10 +249,10 @@ export default function EarnPassPage() {
                     {planAmount > 0 ? (
                       <div className="max-w-[11rem] text-right">
                         <p className="text-sm leading-tight text-white/70">
-                          6-week return: <span className="font-semibold text-emerald-400">{CURRENCY_SYMBOL}{projectedReturn.toLocaleString()}</span>
+                          6-week return: <span className="font-semibold text-emerald-400">{CURRENCY_SYMBOL}{roi.sixWeekReturn.toLocaleString()}</span>
                         </p>
                         <p className="mt-2 text-xs leading-relaxed text-white/55">
-                          Est. daily earnings: {CURRENCY_SYMBOL}{dailyReturn.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          Est. daily earnings: {CURRENCY_SYMBOL}{roi.dailyTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </p>
                       </div>
                     ) : null}
@@ -326,11 +314,15 @@ export default function EarnPassPage() {
                   </p>
                   <p className="text-xs text-white/55">
                     Membership plan: {infoPlan.name}. Next daily earnings: {CURRENCY_SYMBOL}
-                    {projectedDailyEarnings(Number(infoPlan.amount)).toLocaleString(undefined, { maximumFractionDigits: 2 })}.
+                    {getRoiSplit(Number(infoPlan.amount)).dailyTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}.
+                  </p>
+                  <p className="text-xs text-white/55">
+                    Daily split: {CURRENCY_SYMBOL}{getRoiSplit(Number(infoPlan.amount)).taskDailyReward.toLocaleString(undefined, { maximumFractionDigits: 2 })} from EarnXact tasks and {CURRENCY_SYMBOL}
+                    {getRoiSplit(Number(infoPlan.amount)).videoDailyPool.toLocaleString(undefined, { maximumFractionDigits: 2 })} across {DAILY_VIDEO_COUNT} videos.
                   </p>
                   <p className="text-xs text-white/55">
                     Calculation: {CURRENCY_SYMBOL}{Number(infoPlan.amount).toLocaleString()} + 50% = {CURRENCY_SYMBOL}
-                    {sixWeekReturnAmount(Number(infoPlan.amount)).toLocaleString()}, spread across {EARNING_DAYS_PER_WEEK} days weekly for {EARNING_WEEKS} weeks.
+                    {getRoiSplit(Number(infoPlan.amount)).sixWeekReturn.toLocaleString()}, spread across {EARNING_DAYS_PER_WEEK} days weekly for {EARNING_WEEKS} weeks.
                   </p>
                   <div className="h-px bg-white/10" />
                 </>
@@ -414,7 +406,7 @@ export default function EarnPassPage() {
                     </div>
                     <div className="mt-1 text-sm font-semibold text-emerald-400">
                       {CURRENCY_SYMBOL}
-                      {sixWeekReturnAmount(Number(selectedPlan.amount)).toLocaleString()}
+                      {getRoiSplit(Number(selectedPlan.amount)).sixWeekReturn.toLocaleString()}
                     </div>
                   </div>
                 </div>

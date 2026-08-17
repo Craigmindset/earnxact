@@ -29,7 +29,7 @@ export const EARN_NAV_ITEMS: DashboardNavItem[] = [
   { label: "Earnxact", href: "/dashboard", icon: MdHome },
   { label: "Watch Ads", href: "/dashboard/watch-ads", icon: MdOndemandVideo },
   { label: "EarnXact Tasks", href: "/dashboard/tasks", icon: MdChecklist },
-  { label: "Missions", href: "/dashboard/missions", icon: MdFlag },
+  // { label: "Missions", href: "/dashboard/missions", icon: MdFlag },
   { label: "EarnPass", href: "/dashboard/earnpass", icon: MdCardMembership },
   { label: "Check in", href: "/dashboard/check-in", icon: MdEventAvailable, hot: true },
   // { label: "Giveaways", href: "/dashboard/giveaways", icon: MdCardGiftcard },

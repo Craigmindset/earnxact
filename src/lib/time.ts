@@ -17,6 +17,10 @@ export function formatRelativeTime(timestamp: number | Date): string {
   return date.toLocaleDateString("en-NG", { day: "numeric", month: "short" });
 }
 
+export function getNigeriaDateString(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(date);
+}
+
 // Withdrawals are only allowed on Fridays (Africa/Lagos calendar day - see
 // create_withdrawal_request() in supabase/migrations/0008_withdrawal_limits.sql).
 // This computes, purely from a timestamp, whether it's currently Friday in

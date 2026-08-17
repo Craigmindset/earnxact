@@ -19,6 +19,7 @@ import {
   MdUploadFile
 } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { getRoiSplit } from "@/lib/earnings";
 import { createClient } from "@/lib/supabase/client";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import type { DailyTaskTemplateRow, TaskSubmissionRow } from "@/lib/database.types";
@@ -97,6 +98,7 @@ export default function TasksPage() {
 
   const [membershipPlanName, setMembershipPlanName] = useState<string | null>(null);
   const [membershipPlanId, setMembershipPlanId] = useState<string | null>(null);
+  const [membershipPlanAmount, setMembershipPlanAmount] = useState(0);
   const [templates, setTemplates] = useState<DailyTaskTemplateRow[]>([]);
   const [submissions, setSubmissions] = useState<Record<string, TaskSubmissionRow>>({});
   const [allSubmissionDates, setAllSubmissionDates] = useState<string[]>([]);
@@ -205,7 +207,7 @@ export default function TasksPage() {
       const [{ data: profile }] = await Promise.all([
         supabase
           .from("user_profile")
-          .select("membership_plan_id, membership_plans(name)")
+          .select("membership_plan_id, membership_plans(name, amount)")
           .eq("user_id", uid)
           .maybeSingle(),
         loadSubmissions()
@@ -213,11 +215,13 @@ export default function TasksPage() {
 
       if (cancelled) return;
 
-      const planRelation = (profile as { membership_plans?: { name: string } | { name: string }[] | null } | null)
+      const planRelation = (profile as { membership_plans?: { name: string; amount?: number } | { name: string; amount?: number }[] | null } | null)
         ?.membership_plans;
       const planName = Array.isArray(planRelation) ? planRelation[0]?.name : planRelation?.name;
+      const planAmount = Array.isArray(planRelation) ? Number(planRelation[0]?.amount ?? 0) : Number(planRelation?.amount ?? 0);
       setMembershipPlanName(planName ?? null);
       setMembershipPlanId(profile?.membership_plan_id ?? null);
+      setMembershipPlanAmount(planAmount);
     }
 
     loadUserData();
@@ -338,6 +342,7 @@ export default function TasksPage() {
     () => allSubmissionDates.map((d) => new Date(`${d}T00:00:00`)),
     [allSubmissionDates]
   );
+  const taskDailyReward = getRoiSplit(membershipPlanAmount).taskDailyReward;
   const todayDate = useMemo(
     () => new Date(clock.year, clock.month, clock.day),
     [clock.year, clock.month, clock.day]
@@ -539,7 +544,7 @@ export default function TasksPage() {
                   <p className="mt-3 text-sm leading-relaxed text-white/70">{template.description}</p>
                   <div className="mt-2 text-sm font-semibold text-[var(--brand-gold)]">
                     Reward: {CURRENCY_SYMBOL}
-                    {Number(template.reward).toFixed(2)}
+                    {taskDailyReward.toFixed(2)}
                   </div>
 
                   {template.url && (
