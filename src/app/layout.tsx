@@ -38,7 +38,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#050505"
+  themeColor: "#050505",
+  colorScheme: "dark"
 };
 
 export default function RootLayout({
@@ -47,7 +48,7 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body
         className={`min-h-screen ${poppins.variable} ${inter.variable}`}
         suppressHydrationWarning
