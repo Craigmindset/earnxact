@@ -14,6 +14,30 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+function getTaskSubmissionConfigError() {
+  if (!process.env.CLOUDINARY_CLOUD_NAME) {
+    return "Task submissions are not configured yet. Missing CLOUDINARY_CLOUD_NAME.";
+  }
+
+  if (!process.env.CLOUDINARY_API_KEY) {
+    return "Task submissions are not configured yet. Missing CLOUDINARY_API_KEY.";
+  }
+
+  if (!process.env.CLOUDINARY_API_SECRET) {
+    return "Task submissions are not configured yet. Missing CLOUDINARY_API_SECRET.";
+  }
+
+  return null;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "Failed to submit task";
+}
+
 /**
  * Uploads the authenticated user's proof screenshot for today's daily task
  * to Cloudinary, then calls submit_daily_task() to atomically record the
@@ -21,6 +45,12 @@ cloudinary.config({
  * the browser - this route runs entirely server-side.
  */
 export async function POST(request: Request) {
+  const configError = getTaskSubmissionConfigError();
+  if (configError) {
+    console.error("[TaskSubmit] Configuration error", configError);
+    return NextResponse.json({ error: configError }, { status: 500 });
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -99,6 +129,6 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("[TaskSubmit] Upload/submit failed", err);
-    return NextResponse.json({ error: "Failed to submit task" }, { status: 500 });
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
 }
