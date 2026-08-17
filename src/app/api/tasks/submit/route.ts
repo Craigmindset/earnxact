@@ -35,6 +35,28 @@ function getErrorMessage(error: unknown) {
     return error.message;
   }
 
+  if (typeof error === "object" && error !== null) {
+    const errorRecord = error as Record<string, unknown>;
+    const directMessage = errorRecord.message;
+
+    if (typeof directMessage === "string" && directMessage.trim()) {
+      return directMessage;
+    }
+
+    const nestedError = errorRecord.error;
+    if (typeof nestedError === "object" && nestedError !== null) {
+      const nestedMessage = (nestedError as Record<string, unknown>).message;
+      if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+        return nestedMessage;
+      }
+    }
+
+    const httpCode = errorRecord.http_code;
+    if (typeof httpCode === "number") {
+      return `Cloudinary request failed with status ${httpCode}`;
+    }
+  }
+
   return "Failed to submit task";
 }
 
