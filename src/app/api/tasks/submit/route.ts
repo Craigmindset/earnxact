@@ -93,6 +93,8 @@ export async function POST(request: Request) {
     );
   }
 
+  let proofUrl: string;
+
   try {
     const arrayBuffer = await file.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -107,9 +109,21 @@ export async function POST(request: Request) {
       resource_type: "image"
     });
 
+    if (!uploadResult.secure_url) {
+      console.error("[TaskSubmit] Cloudinary upload returned no secure_url", uploadResult);
+      return NextResponse.json({ error: "Failed to upload proof screenshot" }, { status: 502 });
+    }
+
+    proofUrl = uploadResult.secure_url;
+  } catch (err) {
+    console.error("[TaskSubmit] Cloudinary upload failed", err);
+    return NextResponse.json({ error: `Failed to upload proof screenshot: ${getErrorMessage(err)}` }, { status: 502 });
+  }
+
+  try {
     const { data, error: rpcError } = await supabase.rpc("submit_daily_task", {
       p_template_id: templateId,
-      p_proof_url: uploadResult.secure_url
+      p_proof_url: proofUrl
     });
 
     if (rpcError) {
@@ -128,7 +142,7 @@ export async function POST(request: Request) {
       newWalletBalance: result.new_wallet_balance
     });
   } catch (err) {
-    console.error("[TaskSubmit] Upload/submit failed", err);
-    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
+    console.error("[TaskSubmit] Task submission RPC failed", err);
+    return NextResponse.json({ error: `Failed to record task submission: ${getErrorMessage(err)}` }, { status: 500 });
   }
 }
