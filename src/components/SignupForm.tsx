@@ -231,6 +231,16 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
         userId: data.user?.id,
         hasSession: Boolean(data.session)
       });
+
+      if (data.user?.id) {
+        fetch("/api/auth/signup-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: data.user.id, email: signupPayload.email })
+        }).catch((notificationError) => {
+          console.error("[Signup] Failed to queue admin signup notification", notificationError);
+        });
+      }
     } catch (err) {
       console.error("[Signup] Unexpected exception during signUp", err);
 
