@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MdClose, MdVisibility, MdVisibilityOff } from "react-icons/md";
 import { createClient } from "@/lib/supabase/client";
+import { COUNTRY_CODES, type CountryCode } from "@/lib/countries";
 
 type SignupFormProps = {
   initialEmail?: string;
@@ -13,21 +14,6 @@ type SignupFormProps = {
   /** Referral code resolved server-side from ?ref= or the earnxact_ref cookie. */
   referralCode?: string | null;
 };
-
-type CountryCode = {
-  id: "uk" | "ng" | "us" | "fr" | "ca";
-  label: string;
-  dialCode: string;
-  flag: string;
-};
-
-const COUNTRY_CODES: CountryCode[] = [
-  { id: "uk", label: "UK", dialCode: "+44", flag: "🇬🇧" },
-  { id: "ng", label: "Nigeria", dialCode: "+234", flag: "🇳🇬" },
-  { id: "us", label: "USA", dialCode: "+1", flag: "🇺🇸" },
-  { id: "fr", label: "France", dialCode: "+33", flag: "🇫🇷" },
-  { id: "ca", label: "Canada", dialCode: "+1", flag: "🇨🇦" }
-];
 
 const FORM_CACHE_KEY = "earnxact-signup-form";
 
@@ -53,7 +39,7 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [countryId, setCountryId] = useState<CountryCode["id"]>("uk");
+  const [countryId, setCountryId] = useState<CountryCode["id"]>("gb");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [agreeEmails, setAgreeEmails] = useState(false);
@@ -90,7 +76,7 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
         setFirstName(parsed.firstName ?? "");
         setLastName(parsed.lastName ?? "");
         setEmail(parsed.email ?? "");
-        setCountryId(parsed.countryId ?? "uk");
+        setCountryId(parsed.countryId ?? "gb");
         setPhone(parsed.phone ?? "");
         setPassword(parsed.password ?? "");
         setAgreeEmails(Boolean(parsed.agreeEmails));
@@ -370,11 +356,11 @@ export default function SignupForm({ initialEmail, onClose, referralCode }: Sign
 
             <input
               value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 15))}
               required
               autoComplete="tel-national"
               inputMode="numeric"
-              maxLength={11}
+              maxLength={15}
               placeholder="Phone number"
               className="flex-1 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-[var(--brand-gold)]"
             />

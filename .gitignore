@@ -10,3 +10,6 @@ node_modules
 
 # Supabase migration SQL (kept local / managed in the SQL editor)
 supabase/migrations/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
