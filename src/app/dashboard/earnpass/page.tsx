@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { MdBolt, MdClose, MdInfoOutline, MdTrendingUp, MdWorkspacePremium } from "react-icons/md";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
@@ -39,19 +40,11 @@ type CheckoutUser = {
 };
 
 export default function EarnPassPage() {
+  const router = useRouter();
   const [plans, setPlans] = useState<MembershipPlanRow[]>([]);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkoutUser, setCheckoutUser] = useState<CheckoutUser>({
-    firstName: null,
-    lastName: null,
-    email: null,
-    phone: null
-  });
-  const [selectedPlan, setSelectedPlan] = useState<MembershipPlanRow | null>(null);
   const [infoPlan, setInfoPlan] = useState<MembershipPlanRow | null>(null);
-  const [paying, setPaying] = useState(false);
-  const [payMessage, setPayMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,12 +73,6 @@ export default function EarnPassPage() {
 
         if (!cancelled) {
           setCurrentPlanId(profile?.membership_plan_id ?? null);
-          setCheckoutUser({
-            firstName: profile?.first_name ?? null,
-            lastName: profile?.last_name ?? null,
-            email: profile?.email ?? userRes?.user?.email ?? null,
-            phone: profile?.phone_num ?? null
-          });
         }
       }
 
@@ -99,50 +86,11 @@ export default function EarnPassPage() {
   }, []);
 
   function openCheckout(plan: MembershipPlanRow) {
-    setPayMessage(null);
-    setSelectedPlan(plan);
-  }
-
-  function closeCheckout() {
-    if (paying) return;
-    setSelectedPlan(null);
-    setPayMessage(null);
+    router.push(`/dashboard/earnpass/payment-checkout?planId=${encodeURIComponent(plan.id)}`);
   }
 
   function closeInfoModal() {
     setInfoPlan(null);
-  }
-
-  // Starts a Paystack checkout for selectedPlan (see
-  // src/app/api/payments/initialize) and redirects the browser to
-  // Paystack's hosted payment page. Paystack redirects back to
-  // /dashboard/earnpass/verify, which confirms the payment and applies the
-  // plan via src/app/api/payments/verify.
-  async function handlePayNow() {
-    if (!selectedPlan || paying) return;
-    setPaying(true);
-    setPayMessage(null);
-
-    try {
-      const res = await fetch("/api/payments/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: selectedPlan.id })
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok || !data?.authorizationUrl) {
-        setPayMessage(data?.error ?? "Payments are not available yet. Please try again soon.");
-        return;
-      }
-
-      window.location.href = data.authorizationUrl;
-    } catch {
-      setPayMessage("Payments are not available yet. Please try again soon.");
-    } finally {
-      setPaying(false);
-    }
   }
 
   return (
@@ -331,102 +279,6 @@ export default function EarnPassPage() {
                 Earn additional 50% bonus when you refer a user to any membership plan.
               </p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {selectedPlan && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-          onClick={closeCheckout}
-        >
-          <div
-            onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-[var(--brand-card-1)] p-6"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold text-white">Confirm your EarnPass</h3>
-              <button
-                type="button"
-                onClick={closeCheckout}
-                aria-label="Close"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition hover:bg-white/10 hover:text-white"
-              >
-                <MdClose className="text-lg" />
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs font-medium text-white/50">First name</div>
-                  <div className="mt-1 truncate text-sm text-white">
-                    {checkoutUser.firstName || "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-white/50">Last name</div>
-                  <div className="mt-1 truncate text-sm text-white">
-                    {checkoutUser.lastName || "—"}
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-medium text-white/50">Email</div>
-                <div className="mt-1 truncate text-sm text-white">
-                  {checkoutUser.email || "—"}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-medium text-white/50">Phone number</div>
-                <div className="mt-1 truncate text-sm text-white">
-                  {checkoutUser.phone || "—"}
-                </div>
-              </div>
-
-              <div className="h-px bg-white/10" />
-
-              <div>
-                <div className="text-xs font-medium text-white/50">Membership</div>
-                <div className="mt-1 text-sm font-semibold text-white">{selectedPlan.name}</div>
-              </div>
-
-              <div>
-                <div className="text-xs font-medium text-white/50">Amount</div>
-                <div className="mt-1 flex items-start justify-between gap-4">
-                  <div className="text-xl font-semibold text-[var(--brand-gold)]">
-                    {CURRENCY_SYMBOL}
-                    {Number(selectedPlan.amount).toLocaleString()}
-                  </div>
-                  <div className="max-w-[11rem] text-right">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/45">
-                      Your returned earnings in 6 weeks
-                    </div>
-                    <div className="mt-1 text-sm font-semibold text-emerald-400">
-                      {CURRENCY_SYMBOL}
-                      {getRoiSplit(Number(selectedPlan.amount)).sixWeekReturn.toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {payMessage && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-400">
-                  {payMessage}
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={handlePayNow}
-              disabled={paying}
-              className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand-smoky-white)] px-4 py-2.5 text-sm font-semibold text-black transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {paying ? "Processing…" : "Pay Now"}
-            </button>
           </div>
         </div>
       )}

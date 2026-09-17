@@ -102,7 +102,7 @@ export default function ResetPasswordPage() {
 
               <div>
                 <label className="mb-1 block text-sm text-white/80">
-                  Confirm new password
+                  Confirm new password.
                 </label>
                 <input
                   value={confirmPassword}

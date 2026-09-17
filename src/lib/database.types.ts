@@ -312,6 +312,28 @@ export type TaskSubmissionRow = {
   created_at: string;
 };
 
+export type MembershipPaymentSubmissionStatus = "pending" | "rejected" | "applied";
+
+export type MembershipPaymentSubmissionRow = {
+  id: string;
+  user_id: string;
+  plan_id: string;
+  reference: string;
+  expected_amount: number;
+  receipt_url: string;
+  receipt_file_name: string;
+  receipt_mime_type: "application/pdf" | "image/jpeg" | "image/png";
+  receipt_size_bytes: number;
+  status: MembershipPaymentSubmissionStatus;
+  admin_note: string | null;
+  submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  applied_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /**
  * Global announcement an admin posts (via SQL) - shown to every signed-in
  * user on /dashboard/notifications alongside their own personal activity
@@ -515,6 +537,13 @@ export type Database = {
         Update: Partial<Omit<TaskSubmissionRow, "id">>;
         Relationships: [];
       };
+      membership_payment_submissions: {
+        Row: MembershipPaymentSubmissionRow;
+        Insert: Omit<MembershipPaymentSubmissionRow, "id" | "status" | "admin_note" | "submitted_at" | "reviewed_at" | "reviewed_by" | "applied_at" | "created_at" | "updated_at"> &
+          Partial<Pick<MembershipPaymentSubmissionRow, "id" | "status" | "admin_note" | "submitted_at" | "reviewed_at" | "reviewed_by" | "applied_at" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<MembershipPaymentSubmissionRow, "id" | "user_id">>;
+        Relationships: [];
+      };
       admin_notifications: {
         Row: AdminNotificationRow;
         Insert: Omit<AdminNotificationRow, "id" | "created_at" | "is_active"> &
@@ -630,6 +659,41 @@ export type Database = {
           bonus_awarded: number;
           plan_name: string;
           account_type: AccountType;
+        }[];
+      };
+      create_membership_payment_submission: {
+        Args: {
+          p_plan_id: string;
+          p_receipt_url: string;
+          p_receipt_file_name: string;
+          p_receipt_mime_type: string;
+          p_receipt_size_bytes: number;
+        };
+        Returns: {
+          submission_id: string;
+          reference: string;
+          plan_name: string;
+          expected_amount: number;
+          status: MembershipPaymentSubmissionStatus;
+        }[];
+      };
+      get_my_membership_payment_submissions: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          reference: string;
+          plan_id: string;
+          plan_name: string;
+          expected_amount: number;
+          receipt_url: string;
+          receipt_file_name: string;
+          receipt_mime_type: string;
+          receipt_size_bytes: number;
+          status: MembershipPaymentSubmissionStatus;
+          admin_note: string | null;
+          submitted_at: string;
+          reviewed_at: string | null;
+          applied_at: string | null;
         }[];
       };
       get_admin_dashboard_stats: {

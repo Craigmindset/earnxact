@@ -2,11 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { MdNotificationsNone, MdSupportAgent, MdTrendingUp } from "react-icons/md";
 import { FiMenu } from "react-icons/fi";
 import LogoutButton from "@/components/dashboard/LogoutButton";
 import ProfileMenu from "@/components/dashboard/ProfileMenu";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { createClient } from "@/lib/supabase/client";
+import type { MembershipPaymentSubmissionStatus } from "@/lib/database.types";
 import { useUserProfile } from "@/hooks/useUserProfile";
 
 type DashboardHeaderProps = {
@@ -16,7 +19,8 @@ type DashboardHeaderProps = {
 export default function DashboardHeader({
   onToggleMobileSidebar
 }: DashboardHeaderProps) {
-  const { walletBalance, membershipPlanName, loading } = useUserProfile();
+  const { userId, walletBalance, membershipPlanName, loading } = useUserProfile();
+  const [pendingPaymentCount, setPendingPaymentCount] = useState(0);
   const walletBalanceDisplay = `${CURRENCY_SYMBOL}${loading ? "0.00" : walletBalance.toFixed(2)}`;
   // Every user is assigned a membership_plan_id at signup (defaults to the
   // Free plan - see handle_new_user() in supabase/migrations/0001_init.sql),
@@ -25,6 +29,82 @@ export default function DashboardHeader({
   // is still "standard" account_type but has already left the Free plan.
   const planNameLower = membershipPlanName?.trim().toLowerCase() ?? null;
   const isOnFreePlan = planNameLower === null || planNameLower === "free";
+
+  useEffect(() => {
+    if (!userId) {
+      setPendingPaymentCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    const supabase = createClient();
+
+    async function loadPaymentStatus() {
+      const { data, error } = await supabase.rpc("get_my_membership_payment_submissions");
+
+      if (cancelled || error) return;
+
+      setPendingPaymentCount(
+        (data ?? []).filter((submission) => submission.status === "pending").length
+      );
+    }
+
+    void loadPaymentStatus();
+
+    const channel = supabase
+      .channel(`membership_payment_submissions_${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "membership_payment_submissions",
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          if (cancelled) return;
+
+          const nextRow = payload.new as { status?: MembershipPaymentSubmissionStatus } | null;
+          const previousRow = payload.old as { status?: MembershipPaymentSubmissionStatus } | null;
+
+          setPendingPaymentCount((current) => {
+            let nextCount = current;
+
+            if (payload.eventType === "INSERT" && nextRow?.status === "pending") {
+              nextCount += 1;
+            }
+
+            if (payload.eventType === "UPDATE") {
+              if (previousRow?.status === "pending" && nextRow?.status !== "pending") {
+                nextCount -= 1;
+              }
+
+              if (previousRow?.status !== "pending" && nextRow?.status === "pending") {
+                nextCount += 1;
+              }
+            }
+
+            if (payload.eventType === "DELETE" && previousRow?.status === "pending") {
+              nextCount -= 1;
+            }
+
+            return Math.max(nextCount, 0);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  const paymentIndicatorLabel = useMemo(() => {
+    if (pendingPaymentCount === 0) return "Payment status";
+    if (pendingPaymentCount === 1) return "1 payment pending admin approval";
+    return `${pendingPaymentCount} payments pending admin approval`;
+  }, [pendingPaymentCount]);
 
   return (
     <header className="sticky top-0 z-50 flex h-16 items-center gap-3 border-b border-white/10 bg-[var(--brand-black)]/90 px-4 backdrop-blur supports-[backdrop-filter]:bg-[color:rgba(5,5,5,0.8)] md:px-6">
@@ -73,6 +153,24 @@ export default function DashboardHeader({
           className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-[var(--brand-gold)] transition hover:bg-white/10"
         >
           {walletBalanceDisplay}
+        </Link>
+
+        <Link
+          href="/dashboard/payment-status"
+          aria-label={paymentIndicatorLabel}
+          className={`relative inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+            pendingPaymentCount > 0
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15"
+              : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+          }`}
+        >
+          <span className="hidden sm:inline">Payment status</span>
+          <span className="sm:hidden">Pay</span>
+          {pendingPaymentCount > 0 && (
+            <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-amber-400 px-1.5 py-0.5 text-[11px] font-bold text-black">
+              {pendingPaymentCount}
+            </span>
+          )}
         </Link>
 
         <Link
